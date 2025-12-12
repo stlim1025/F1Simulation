@@ -1,0 +1,5 @@
+{
+  "name": "F1 Stratos: Setup Simulator",
+  "description": "F1 차량 설정을 커스터마이즈하고, 다양한 트랙에서 레이스 랩을 시뮬레이션하며, AI 기반 레이스 엔지니어 피드백을 통해 텔레메트리를 분석하세요.",
+  "requestFramePermissions": []
+}
