@@ -1,16 +1,19 @@
 import React, { useState, useCallback } from 'react';
-import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound } from './types';
+import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver } from './types';
 import { DEFAULT_SETUP, TRACKS } from './constants';
 import CarSetupPanel from './components/CarSetupPanel';
 import TrackSelector from './components/TrackSelector';
+import TeamDriverSelector from './components/TeamDriverSelector';
 import TelemetryCharts from './components/TelemetryCharts';
 import LapHistoryChart from './components/LapHistoryChart';
 import { getRaceEngineerFeedback } from './services/geminiService';
-import { Play, RotateCcw, Cpu, Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, ChevronRight } from 'lucide-react';
+import { Play, RotateCcw, Cpu, Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, ChevronRight, Users } from 'lucide-react';
 
 const App: React.FC = () => {
   const [setup, setSetup] = useState<CarSetup>(DEFAULT_SETUP);
   const [selectedTrack, setSelectedTrack] = useState<TrackData>(TRACKS[0]);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
   const [history, setHistory] = useState<SimulationResult[]>([]);
@@ -50,10 +53,14 @@ const App: React.FC = () => {
   const runSimulation = useCallback(async () => {
     setIsSimulating(true);
 
+    // Default Stats if no driver/team selected
+    const teamFactor = selectedTeam ? selectedTeam.performanceFactor : 1.0; // 1.0 is average, <1 is faster
+    const driverSkill = selectedDriver ? selectedDriver.skill : 0.85; // 0.85 is avg driver
+    const driverConsistency = selectedDriver ? selectedDriver.consistency : 0.85;
+
     // --- ENHANCED PHYSICS APPROXIMATION LOGIC ---
     
     // 1. Aerodynamics (Wings 0-50)
-    // High wings = High Drag (Slow straights) but High Downforce (Fast corners)
     const avgWing = (setup.frontWing + setup.rearWing) / 2;
     const dragFactor = (avgWing / 50) * 0.15; // Max 15% speed penalty on straights
     const downforceFactor = (avgWing / 50) * 0.25; // Max 25% speed bonus in corners
@@ -61,29 +68,23 @@ const App: React.FC = () => {
     // Track Penalty: Deviation from ideal wing
     const trackIdealWing = selectedTrack.idealSetup.wingAngle;
     const wingDelta = Math.abs(avgWing - trackIdealWing);
-    const timePenaltyAero = wingDelta * 0.05; // 0.05s per degree off
+    const timePenaltyAero = wingDelta * 0.05; 
 
     // 2. Suspension & Balance
-    // Stiffness: 1-41. Track Ideal Stiffness is mapped 1-10 -> 1-41 approximately
     const idealSuspensionVal = selectedTrack.idealSetup.stiffness * 4; 
     const avgSuspension = (setup.frontSuspension + setup.rearSuspension) / 2;
     const suspDelta = Math.abs(avgSuspension - idealSuspensionVal);
     const timePenaltySusp = suspDelta * 0.02;
 
-    // Balance check: If Front much stiffer than Rear -> Understeer (Safer but slower in tight corners)
-    // If Rear much stiffer -> Oversteer (Risk of spin/time loss)
     const balanceBias = setup.frontSuspension - setup.rearSuspension; 
-    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.2 : 0; // Penalty if balance is too extreme
+    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.2 : 0;
 
-    // 3. Differential (50-100%)
-    // High On-Throttle = Good traction out of corners, but tire wear.
-    // Low Off-Throttle = Better rotation into corners.
+    // 3. Differential
     const diffPenalty = (Math.abs(setup.onThrottleDiff - 75) * 0.005) + (Math.abs(setup.offThrottleDiff - 60) * 0.005);
 
     // 4. Brakes
-    // High Pressure = Shorter braking (faster), but lockup risk (simulated as random time loss)
-    const brakeGain = (setup.brakePressure - 80) * 0.01; // Up to 0.2s gain
-    const lockupRisk = (setup.brakePressure > 95) ? Math.random() * 0.3 : 0;
+    const brakeGain = (setup.brakePressure - 80) * 0.01; 
+    const lockupRisk = (setup.brakePressure > 95) ? Math.random() * 0.3 * (1.1 - driverConsistency) : 0; // High consistency reduces lockup punishment
 
     // 5. Tires & Pressures
     let tireGrip = 1.0;
@@ -96,12 +97,14 @@ const App: React.FC = () => {
         case TireCompound.WET: tireGrip = 0.8; tireWearRate = 1.5; break; 
     }
 
-    // Pressure deviation from "optimal" (e.g., 23.0 PSI)
     const pressurePenalty = (Math.abs(setup.frontTirePressure - 23) + Math.abs(setup.rearTirePressure - 21)) * 0.05;
 
     // --- TOTAL LAP TIME CALCULATION ---
     let finalLapTime = selectedTrack.baseLapTime;
     
+    // Apply Team Performance Factor (Multiplier on base time)
+    finalLapTime = finalLapTime * teamFactor;
+
     // Add penalties & Subtract gains
     finalLapTime += timePenaltyAero;
     finalLapTime += timePenaltySusp;
@@ -112,8 +115,15 @@ const App: React.FC = () => {
     finalLapTime -= brakeGain;
     finalLapTime -= (tireGrip * 0.5); // Grip bonus
     
+    // Apply Driver Skill (Subtract raw time)
+    // Skill 1.0 removes 0.5s, Skill 0.5 removes 0.25s
+    const skillBonus = driverSkill * 0.5;
+    finalLapTime -= skillBonus;
+
     // Add randomness (Driver inconsistency)
-    finalLapTime += Math.random() * 0.2;
+    // Consistency 1.0 -> 0 variance, 0.0 -> 0.4s variance
+    const variance = (1.0 - driverConsistency) * 0.4;
+    finalLapTime += (Math.random() - 0.5) * variance;
 
     // --- TELEMETRY GENERATION ---
     const telemetry: TelemetryPoint[] = [];
@@ -134,17 +144,17 @@ const App: React.FC = () => {
 
             if (sector === 'Straight') {
                 const progress = i / steps;
-                // Drag penalty affects top speed
-                const maxSpeed = 350 - (dragFactor * 200); 
+                // Team factor affects top speed slightly (better engine/aero)
+                const teamSpeedBonus = (1.0 - teamFactor) * 100; // e.g. 0.02 * 100 = +2km/h
+                const maxSpeed = 350 - (dragFactor * 200) + teamSpeedBonus; 
                 speed = 100 + (maxSpeed - 100) * Math.sqrt(progress); 
                 throttle = 100;
                 brake = 0;
                 gear = Math.min(8, Math.floor(speed / 40) + 1);
             } else if (sector === 'Corner') {
-                // Downforce bonus affects corner speed
                 const cornerSpeed = 90 + (downforceFactor * 1000 * tireGrip); 
                 speed = cornerSpeed;
-                throttle = setup.offThrottleDiff > 80 ? 70 : 60; // High off-throttle diff pushes car
+                throttle = setup.offThrottleDiff > 80 ? 70 : 60; 
                 brake = i < 5 ? setup.brakePressure : 0; 
                 gear = Math.min(8, Math.floor(speed / 40) + 1);
             } else { 
@@ -169,8 +179,6 @@ const App: React.FC = () => {
     });
 
     const runId = history.length + 1;
-
-    // Calculate final tire wear based on diff and pressures
     const finalTireWear = tireWearRate * 5 + (setup.onThrottleDiff * 0.02) + (Math.abs(setup.frontTirePressure - 23) * 0.5);
 
     const resultWithoutAI: Omit<SimulationResult, 'aiAnalysis'> = {
@@ -182,7 +190,9 @@ const App: React.FC = () => {
         sector3: finalLapTime * 0.3,
         telemetry,
         tireWear: finalTireWear,
-        setupSnapshot: { ...setup }
+        setupSnapshot: { ...setup },
+        driver: selectedDriver || undefined,
+        team: selectedTeam || undefined
     };
 
     const aiFeedback = await getRaceEngineerFeedback(setup, selectedTrack, resultWithoutAI);
@@ -195,24 +205,21 @@ const App: React.FC = () => {
     setSimResult(finalResult);
     setHistory(prev => [...prev, finalResult]);
     setIsSimulating(false);
-  }, [setup, selectedTrack, history]);
+  }, [setup, selectedTrack, history, selectedTeam, selectedDriver]);
 
-  // Handle Track Change -> Reset History
   const handleTrackSelect = (track: TrackData) => {
       setSelectedTrack(track);
       setHistory([]);
       setSimResult(null);
   };
 
-  const getPreviousRun = (currentIndex: number, allHistory: SimulationResult[]) => {
-      const reversedHistory = [...allHistory].reverse();
-      const currentItem = reversedHistory[currentIndex];
-      return allHistory.find(h => h.runNumber === currentItem.runNumber - 1);
+  const handleTeamSelect = (team: Team) => {
+    setSelectedTeam(team);
+    setSelectedDriver(null); // Reset driver when team changes
   };
 
   return (
     <div className="min-h-screen pb-12">
-      {/* Header */}
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50 bg-opacity-90 backdrop-blur-md">
         <div className="container mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3 select-none">
@@ -239,8 +246,14 @@ const App: React.FC = () => {
             onSelect={handleTrackSelect} 
         />
 
+        <TeamDriverSelector 
+            selectedTeam={selectedTeam} 
+            selectedDriver={selectedDriver} 
+            onSelectTeam={handleTeamSelect}
+            onSelectDriver={setSelectedDriver}
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left Column: Setup */}
             <div className="lg:col-span-4 lg:h-[calc(100vh-200px)] lg:sticky lg:top-24 h-auto relative">
                 <CarSetupPanel 
                     setup={setup} 
@@ -250,19 +263,18 @@ const App: React.FC = () => {
                 />
             </div>
 
-            {/* Right Column: Results & Telemetry */}
             <div className="lg:col-span-8">
                 {history.length === 0 ? (
                     <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
                         <Trophy className="text-slate-700 mb-4" size={64} />
-                        <p className="text-slate-500 text-lg text-center px-4">시뮬레이션을 시작하려면 설정을 완료하고 실행 버튼을 누르세요</p>
+                        <p className="text-slate-500 text-lg text-center px-4">
+                            {!selectedDriver ? "팀과 드라이버를 선택하고 시뮬레이션을 시작하세요" : "준비 완료! 시뮬레이션을 실행하세요"}
+                        </p>
                     </div>
                 ) : (
                     <div className="animate-fade-in space-y-8">
-                        {/* Overall History Chart - Always Visible at Top */}
                         <LapHistoryChart history={history} baseLapTime={selectedTrack.baseLapTime} />
 
-                        {/* Reverse Map of History: Newest First */}
                         {[...history].reverse().map((run, index) => {
                             const isLatest = index === 0;
                             const previousRun = history.find(h => h.runNumber === run.runNumber - 1);
@@ -272,12 +284,17 @@ const App: React.FC = () => {
                             return (
                                 <div key={run.runNumber} className={`border rounded-xl overflow-hidden transition-all ${isLatest ? 'bg-slate-900 border-slate-700 shadow-2xl' : 'bg-slate-900/50 border-slate-800 opacity-80 hover:opacity-100'}`}>
                                     
-                                    {/* Header Section of Card */}
                                     <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/30 gap-2">
                                         <div className="flex items-center gap-3">
                                             <span className={`text-xs font-bold px-2 py-1 rounded ${isLatest ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
                                                 RUN {run.runNumber}
                                             </span>
+                                            {run.driver && (
+                                                <div className="flex items-center gap-2 bg-slate-950 px-2 py-1 rounded border border-slate-800">
+                                                    <span className="text-xs font-bold text-white">{run.driver.name}</span>
+                                                    <span className="text-[10px] text-slate-500">#{run.driver.number}</span>
+                                                </div>
+                                            )}
                                             <span className="text-slate-500 text-xs font-mono">
                                                 {new Date(run.timestamp).toLocaleTimeString()}
                                             </span>
@@ -293,15 +310,12 @@ const App: React.FC = () => {
                                         )}
                                     </div>
 
-                                    {/* Content Section */}
                                     <div className="p-4">
-                                        {/* Changes Summary */}
                                         <div className="mb-4 text-xs text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800/50 flex items-start gap-2">
                                             <SettingsIconWrapper />
                                             <span className="font-mono break-all sm:break-normal">{setupChanges}</span>
                                         </div>
 
-                                        {/* Stats Grid */}
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                                             <StatBox label="랩 타임" value={formatTime(run.lapTime)} 
                                                 subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs 목표`}
@@ -318,7 +332,6 @@ const App: React.FC = () => {
                                             />
                                         </div>
 
-                                        {/* AI Analysis (Always visible but styled differently for old runs) */}
                                         <div className={`p-4 rounded-lg mb-4 ${isLatest ? 'bg-gradient-to-r from-slate-800 to-slate-900 border-l-4 border-cyan-500' : 'bg-slate-950 border border-slate-800'}`}>
                                             <h3 className={`font-bold uppercase tracking-wider text-xs mb-2 flex items-center gap-2 ${isLatest ? 'text-cyan-400' : 'text-slate-500'}`}>
                                                 <Cpu size={14}/> 엔지니어 피드백
@@ -328,7 +341,6 @@ const App: React.FC = () => {
                                             </p>
                                         </div>
 
-                                        {/* Charts - Only for Latest Run */}
                                         {isLatest && (
                                             <div className="mt-6 pt-6 border-t border-slate-800 animate-fade-in">
                                                 <TelemetryCharts data={run.telemetry} />
@@ -347,7 +359,6 @@ const App: React.FC = () => {
   );
 };
 
-// Sub-components for cleaner App.tsx
 const StatBox = ({ label, value, subValue, subColor = "text-slate-500", unit, icon: Icon }: any) => (
     <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg relative overflow-hidden">
         <div className="absolute top-0 right-0 p-2 opacity-5"><Icon size={32}/></div>

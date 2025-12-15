@@ -5,6 +5,24 @@ export enum TireCompound {
   WET = '웨트',
 }
 
+export interface Team {
+  id: string;
+  name: string;
+  logo: string; // URL
+  performanceFactor: number; // 0.98 (Best) ~ 1.02 (Worst) - Multiplier for lap time
+  color: string; // Hex code
+}
+
+export interface Driver {
+  id: string;
+  name: string;
+  teamId: string;
+  photo: string; // URL
+  number: number;
+  skill: number; // 0.0 ~ 1.0 (Subtracts up to 0.5s from lap time)
+  consistency: number; // 0.0 ~ 1.0 (Reduces randomness variance)
+}
+
 export interface CarSetup {
   // Aerodynamics (0-50)
   frontWing: number; 
@@ -70,4 +88,6 @@ export interface SimulationResult {
   tireWear: number;
   aiAnalysis: string; // From Gemini
   setupSnapshot: CarSetup; // Store the setup used for this run
+  driver?: Driver; // The driver who did this run
+  team?: Team; // The team car used
 }
