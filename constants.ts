@@ -1,4 +1,4 @@
-import { CarSetup, TireCompound, TrackData } from './types';
+import { CarSetup, TireCompound, TrackData, Team, Driver } from './types';
 
 export const DEFAULT_SETUP: CarSetup = {
   // Aero
@@ -40,6 +40,138 @@ export const SETUP_DESCRIPTIONS: Record<keyof CarSetup, string> = {
   rearTirePressure: "후륜 기준 26 PSI 내외. 트랙 온도와 타이어 종류에 따라 조절합니다.",
   tireCompound: "트랙 특성과 날씨에 맞춰 선택합니다 (소프트: 빠름/마모큼, 하드: 느림/오래감)."
 };
+
+// 2026 Teams Projection
+// Performance Factor: Lower is better (multiplies lap time)
+export const TEAMS: Team[] = [
+  { 
+    id: 'mclaren', 
+    name: 'McLaren', 
+    logo: './images/teams/mclaren.png', 
+    performanceFactor: 0.985, 
+    color: '#FF8000' 
+  },
+  { 
+    id: 'ferrari', 
+    name: 'Ferrari', 
+    logo: './images/teams/ferrari.png', 
+    performanceFactor: 0.987, 
+    color: '#DC0000' 
+  },
+  { 
+    id: 'redbull', 
+    name: 'Red Bull Racing', 
+    logo: './images/teams/redbull.png', 
+    performanceFactor: 0.989, 
+    color: '#0600EF' 
+  },
+  { 
+    id: 'mercedes', 
+    name: 'Mercedes-AMG', 
+    logo: './images/teams/mercedes.png', 
+    performanceFactor: 0.991, 
+    color: '#00D2BE' 
+  },
+  { 
+    id: 'aston', 
+    name: 'Aston Martin', 
+    logo: './images/teams/aston_martin.png', 
+    performanceFactor: 0.994, 
+    color: '#006F62' 
+  },
+  { 
+    id: 'williams', 
+    name: 'Williams', 
+    logo: './images/teams/williams.png', 
+    performanceFactor: 0.998, 
+    color: '#005AFF' 
+  },
+  { 
+    id: 'alpine', 
+    name: 'Alpine', 
+    logo: './images/teams/alpine.png', 
+    performanceFactor: 1.002, 
+    color: '#0090FF' 
+  },
+  { 
+    id: 'haas', 
+    name: 'Haas F1', 
+    logo: './images/teams/haas.png', 
+    performanceFactor: 1.003, 
+    color: '#B6BABD' 
+  },
+  { 
+    id: 'rb', 
+    name: 'Racing Bulls', 
+    logo: './images/teams/rb.png', 
+    performanceFactor: 1.005, 
+    color: '#6692FF' 
+  },
+  { 
+    id: 'audi', 
+    name: 'Audi', 
+    logo: './images/teams/audi.png', 
+    performanceFactor: 1.008, 
+    color: '#000000' 
+  },
+  { 
+    id: 'cadillac', 
+    name: 'Cadillac', 
+    logo: './images/teams/cadillac.png', 
+    performanceFactor: 1.010, 
+    color: '#FFD700' // Gold/Yellowish for Cadillac
+  },
+];
+
+// 2026 Drivers Projection
+// Skill: Higher is better (subtracts time)
+// Consistency: Higher is better (reduces variance)
+export const DRIVERS: Driver[] = [
+  // McLaren
+  { id: 'norris', name: 'Lando Norris', teamId: 'mclaren', number: 4, photo: './images/drivers/lando_norris.png', skill: 0.98, consistency: 0.96 },
+  { id: 'piastri', name: 'Oscar Piastri', teamId: 'mclaren', number: 81, photo: './images/drivers/oscar_piastri.png', skill: 0.97, consistency: 0.95 },
+  
+  // Ferrari
+  { id: 'leclerc', name: 'Charles Leclerc', teamId: 'ferrari', number: 16, photo: './images/drivers/charles_leclerc.png', skill: 0.98, consistency: 0.92 },
+  { id: 'hamilton', name: 'Lewis Hamilton', teamId: 'ferrari', number: 44, photo: './images/drivers/lewis_hamilton.png', skill: 0.97, consistency: 0.97 },
+  
+  // Red Bull
+  { id: 'verstappen', name: 'Max Verstappen', teamId: 'redbull', number: 1, photo: './images/drivers/max_verstappen.png', skill: 1.0, consistency: 0.99 },
+  { id: 'hadjar', name: 'Isack Hadjar', teamId: 'redbull', number: 6, photo: './images/drivers/isack_hadjar.png', skill: 0.88, consistency: 0.82 },
+  
+  // Mercedes
+  { id: 'russell', name: 'George Russell', teamId: 'mercedes', number: 63, photo: './images/drivers/george_russell.png', skill: 0.96, consistency: 0.93 },
+  { id: 'antonelli', name: 'Kimi Antonelli', teamId: 'mercedes', number: 12, photo: './images/drivers/kimi_antonelli.png', skill: 0.89, consistency: 0.80 },
+  
+  // Aston Martin
+  { id: 'alonso', name: 'Fernando Alonso', teamId: 'aston', number: 14, photo: './images/drivers/fernando_alonso.png', skill: 0.96, consistency: 0.98 },
+  { id: 'stroll', name: 'Lance Stroll', teamId: 'aston', number: 18, photo: './images/drivers/lance_stroll.png', skill: 0.84, consistency: 0.80 },
+  
+  // Williams
+  { id: 'albon', name: 'Alex Albon', teamId: 'williams', number: 23, photo: './images/drivers/alex_albon.png', skill: 0.92, consistency: 0.90 },
+  { id: 'sainz', name: 'Carlos Sainz', teamId: 'williams', number: 55, photo: './images/drivers/carlos_sainz.png', skill: 0.95, consistency: 0.94 },
+  
+  // Alpine
+  { id: 'gasly', name: 'Pierre Gasly', teamId: 'alpine', number: 10, photo: './images/drivers/pierre_gasly.png', skill: 0.91, consistency: 0.90 },
+  { id: 'colapinto', name: 'Franco Colapinto', teamId: 'alpine', number: 43, photo: './images/drivers/franco_colapinto.png', skill: 0.87, consistency: 0.85 },
+  
+  // Haas
+  { id: 'ocon', name: 'Esteban Ocon', teamId: 'haas', number: 31, photo: './images/drivers/esteban_ocon.png', skill: 0.90, consistency: 0.88 },
+  { id: 'bearman', name: 'Oliver Bearman', teamId: 'haas', number: 87, photo: './images/drivers/oliver_bearman.png', skill: 0.87, consistency: 0.85 },
+  
+  // Racing Bulls (RB)
+  { id: 'lawson', name: 'Liam Lawson', teamId: 'rb', number: 30, photo: './images/drivers/liam_lawson.png', skill: 0.89, consistency: 0.88 },
+  { id: 'lindblad', name: 'Arvid Lindblad', teamId: 'rb', number: 24, photo: './images/drivers/arvid_lindblad.png', skill: 0.85, consistency: 0.78 },
+  
+  // Audi
+  { id: 'hulkenberg', name: 'Nico Hulkenberg', teamId: 'audi', number: 27, photo: './images/drivers/nico_hulkenberg.png', skill: 0.90, consistency: 0.92 },
+  { id: 'bortoleto', name: 'Gabriel Bortoleto', teamId: 'audi', number: 99, photo: './images/drivers/gabriel_bortoleto.png', skill: 0.86, consistency: 0.82 },
+  
+  // Cadillac
+  { id: 'perez', name: 'Sergio Perez', teamId: 'cadillac', number: 11, photo: './images/drivers/sergio_perez.png', skill: 0.89, consistency: 0.85 },
+  { id: 'bottas', name: 'Valtteri Bottas', teamId: 'cadillac', number: 77, photo: './images/drivers/valtteri_bottas.png', skill: 0.89, consistency: 0.93 },
+];
+
 
 // Wing angles updated to 0-50 scale (roughly x4 of previous 0-12)
 export const TRACKS: TrackData[] = [
