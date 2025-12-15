@@ -224,7 +224,7 @@ const App: React.FC = () => {
         <div className="container mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3 select-none">
                 <img 
-                    src="./rilakkuma-f1.png" 
+                    src="./images/rilakkuma-f1.png" 
                     alt="Rilakkuma F1" 
                     className="h-12 md:h-14 w-auto object-contain filter drop-shadow-[0_0_10px_rgba(250,204,21,0.3)] hover:scale-105 transition-transform duration-300"
                 />

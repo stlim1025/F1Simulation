@@ -82,7 +82,7 @@ export const TEAMS: Team[] = [
   { 
     id: 'williams', 
     name: 'Williams', 
-    logo: './images/teams/williams.png', 
+    logo: './images/teams/williams.jpg', 
     performanceFactor: 0.998, 
     color: '#005AFF' 
   },
@@ -96,7 +96,7 @@ export const TEAMS: Team[] = [
   { 
     id: 'haas', 
     name: 'Haas F1', 
-    logo: './images/teams/haas.png', 
+    logo: './images/teams/haas.jpg', 
     performanceFactor: 1.003, 
     color: '#B6BABD' 
   },
@@ -134,6 +134,7 @@ export const DRIVERS: Driver[] = [
   // Ferrari
   { id: 'leclerc', name: 'Charles Leclerc', teamId: 'ferrari', number: 16, photo: './images/drivers/charles_leclerc.png', skill: 0.98, consistency: 0.92 },
   { id: 'hamilton', name: 'Lewis Hamilton', teamId: 'ferrari', number: 44, photo: './images/drivers/lewis_hamilton.png', skill: 0.97, consistency: 0.97 },
+  { id: 'rilakkuma', name: 'rilakkuma', teamId: 'ferrari', number: 99, photo: './images/drivers/rilakkuma.png', skill: 0.93, consistency: 0.92 },
   
   // Red Bull
   { id: 'verstappen', name: 'Max Verstappen', teamId: 'redbull', number: 1, photo: './images/drivers/max_verstappen.png', skill: 1.0, consistency: 0.99 },
