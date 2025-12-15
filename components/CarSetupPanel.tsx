@@ -25,7 +25,7 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating }
                 <Info size={12} className="text-slate-500 hover:text-slate-300 transition-colors" />
             </div>
             {/* Tooltip */}
-            <div className="absolute left-0 bottom-full mb-2 w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+            <div className="absolute left-0 bottom-full mb-2 w-48 sm:w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                 {SETUP_DESCRIPTIONS[prop as keyof CarSetup]}
                 <div className="absolute bottom-[-4px] left-4 w-2 h-2 bg-slate-950 border-r border-b border-slate-700 transform rotate-45"></div>
             </div>
@@ -47,14 +47,14 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating }
   );
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg flex flex-col h-full">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg flex flex-col lg:h-full h-auto">
       <div className="p-4 border-b border-slate-700 bg-slate-800/50 rounded-t-xl sticky top-0 z-10 backdrop-blur-md">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Zap className="text-yellow-500" size={20} /> 개러지 설정
           </h2>
       </div>
 
-      <div className="p-4 space-y-6 flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
+      <div className="p-4 space-y-6 flex-grow lg:overflow-y-auto overflow-visible scrollbar-thin scrollbar-thumb-slate-700">
         {/* Aerodynamics */}
         <section>
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3 border-b border-slate-800 pb-1 flex items-center gap-1">
@@ -113,7 +113,7 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating }
                 <label className="text-xs font-medium text-slate-300 mb-2 block flex items-center gap-2 group relative w-fit">
                     <Disc size={14} className="text-white"/> 컴파운드 선택
                     <div className="ml-1"><Info size={12} className="text-slate-500 hover:text-slate-300" /></div>
-                     <div className="absolute left-0 bottom-full mb-2 w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                     <div className="absolute left-0 bottom-full mb-2 w-48 sm:w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                         {SETUP_DESCRIPTIONS['tireCompound']}
                     </div>
                 </label>

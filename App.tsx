@@ -205,13 +205,8 @@ const App: React.FC = () => {
   };
 
   const getPreviousRun = (currentIndex: number, allHistory: SimulationResult[]) => {
-      // Since we will render history reversed, logic needs care.
-      // But we can just use the absolute runNumber.
-      // Or simply:
       const reversedHistory = [...allHistory].reverse();
       const currentItem = reversedHistory[currentIndex];
-      // In the full history array, the previous run is the one before this one (index - 1).
-      // But wait, runNumber increments.
       return allHistory.find(h => h.runNumber === currentItem.runNumber - 1);
   };
 
@@ -220,10 +215,14 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50 bg-opacity-90 backdrop-blur-md">
         <div className="container mx-auto flex justify-between items-center">
-            <div className="flex items-center gap-2">
-                <Cpu className="text-red-600" size={32} />
-                <h1 className="text-2xl font-black italic tracking-tighter text-white">
-                    F1 <span className="text-red-600">STRATOS</span>
+            <div className="flex items-center gap-3 select-none">
+                <img 
+                    src="./rilakkuma-f1.png" 
+                    alt="Rilakkuma F1" 
+                    className="h-12 md:h-14 w-auto object-contain filter drop-shadow-[0_0_10px_rgba(250,204,21,0.3)] hover:scale-105 transition-transform duration-300"
+                />
+                <h1 className="text-xl md:text-2xl font-black italic tracking-tighter text-white">
+                    F1 <span className="text-yellow-400">Simulator</span>
                 </h1>
             </div>
             <div className="text-xs text-slate-500 font-mono hidden md:block">
@@ -232,7 +231,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 pt-8">
+      <main className="container mx-auto px-4 pt-4 md:pt-8">
         
         <TrackSelector 
             tracks={TRACKS} 
@@ -242,7 +241,7 @@ const App: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Column: Setup */}
-            <div className="lg:col-span-4 h-[calc(100vh-200px)] sticky top-24">
+            <div className="lg:col-span-4 lg:h-[calc(100vh-200px)] lg:sticky lg:top-24 h-auto relative">
                 <CarSetupPanel 
                     setup={setup} 
                     onChange={setSetup} 
@@ -256,7 +255,7 @@ const App: React.FC = () => {
                 {history.length === 0 ? (
                     <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
                         <Trophy className="text-slate-700 mb-4" size={64} />
-                        <p className="text-slate-500 text-lg">시뮬레이션을 시작하려면 설정을 완료하고 실행 버튼을 누르세요</p>
+                        <p className="text-slate-500 text-lg text-center px-4">시뮬레이션을 시작하려면 설정을 완료하고 실행 버튼을 누르세요</p>
                     </div>
                 ) : (
                     <div className="animate-fade-in space-y-8">
@@ -274,7 +273,7 @@ const App: React.FC = () => {
                                 <div key={run.runNumber} className={`border rounded-xl overflow-hidden transition-all ${isLatest ? 'bg-slate-900 border-slate-700 shadow-2xl' : 'bg-slate-900/50 border-slate-800 opacity-80 hover:opacity-100'}`}>
                                     
                                     {/* Header Section of Card */}
-                                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
+                                    <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/30 gap-2">
                                         <div className="flex items-center gap-3">
                                             <span className={`text-xs font-bold px-2 py-1 rounded ${isLatest ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
                                                 RUN {run.runNumber}
@@ -284,7 +283,7 @@ const App: React.FC = () => {
                                             </span>
                                         </div>
                                         {previousRun && (
-                                            <div className="flex items-center gap-2 text-sm font-mono">
+                                            <div className="flex items-center gap-2 text-sm font-mono self-end sm:self-auto">
                                                 <span className="text-slate-500 text-xs hidden sm:inline">vs Run {previousRun.runNumber}</span>
                                                 <span className={`font-bold flex items-center ${lapTimeDelta < 0 ? 'text-green-500' : 'text-red-500'}`}>
                                                     {lapTimeDelta < 0 ? <ArrowDown size={14}/> : <ArrowUp size={14}/>}
@@ -299,11 +298,11 @@ const App: React.FC = () => {
                                         {/* Changes Summary */}
                                         <div className="mb-4 text-xs text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800/50 flex items-start gap-2">
                                             <SettingsIconWrapper />
-                                            <span className="font-mono">{setupChanges}</span>
+                                            <span className="font-mono break-all sm:break-normal">{setupChanges}</span>
                                         </div>
 
                                         {/* Stats Grid */}
-                                        <div className="grid grid-cols-3 gap-4 mb-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                                             <StatBox label="랩 타임" value={formatTime(run.lapTime)} 
                                                 subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs 목표`}
                                                 subColor={run.lapTime < selectedTrack.baseLapTime ? 'text-green-500' : 'text-red-500'}
@@ -361,7 +360,7 @@ const StatBox = ({ label, value, subValue, subColor = "text-slate-500", unit, ic
 );
 
 const SettingsIconWrapper = () => (
-    <div className="mt-0.5"><History size={12}/></div>
+    <div className="mt-0.5 min-w-[12px]"><History size={12}/></div>
 )
 
 export default App;
