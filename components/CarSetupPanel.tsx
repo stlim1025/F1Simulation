@@ -25,38 +25,168 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
     onChange({ ...setup, [key]: value });
   };
 
-  const SliderControl = ({ labelKey, prop, min, max, unit, step = 1, icon: Icon, color = "text-red-500" }: any) => (
-    <div className="mb-4">
-      <div className="flex justify-between items-center mb-1 text-slate-300">
-        <div className="flex items-center gap-2 relative group">
-            <Icon size={14} className={color} />
-            <span className="text-xs font-medium cursor-help border-b border-dotted border-slate-600">
-                {getLabel(labelKey)}
-            </span>
-            <div className="ml-1">
-                <Info size={12} className="text-slate-500 hover:text-slate-300 transition-colors" />
-            </div>
-            {/* Tooltip */}
-            <div className="absolute left-0 bottom-full mb-2 w-48 sm:w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {SETUP_DESCRIPTIONS[prop as keyof CarSetup][lang]}
-                <div className="absolute bottom-[-4px] left-4 w-2 h-2 bg-slate-950 border-r border-b border-slate-700 transform rotate-45"></div>
-            </div>
+  const SliderControl = ({ labelKey, prop, min, max, unit, step = 1, icon: Icon, color = "text-red-500" }: any) => {
+    const [isPointerDown, setIsPointerDown] = React.useState(false);
+    const dragValueRef = React.useRef<number | null>(null);
+    const displayRef = React.useRef<HTMLSpanElement | null>(null);
+    const inputRef = React.useRef<HTMLInputElement | null>(null);
+    const activePointerId = React.useRef<number | null>(null);
+
+    const handlePointerDown = (e: React.PointerEvent<HTMLInputElement>) => {
+      setIsPointerDown(true);
+      activePointerId.current = e.pointerId;
+      console.debug('slider: pointerdown', prop, 'pointerId=', e.pointerId, 'value=', e.currentTarget.value, 'x=', e.clientX);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (err) {
+        // ignore if not supported
+      }
+      // initialize local drag value from current input or computed position
+      const startVal = computeValueFromClientX ? computeValueFromClientX(e.clientX) : Number(e.currentTarget.value);
+      dragValueRef.current = startVal === null ? Number(e.currentTarget.value) : startVal;
+      // update DOM immediately to avoid React re-render during drag
+      if (inputRef.current) inputRef.current.value = String(dragValueRef.current);
+      if (displayRef.current) displayRef.current.textContent = `${dragValueRef.current} ${unit}`;
+      // add global listeners so releasing outside the input is handled
+      window.addEventListener('pointermove', globalPointerMove);
+      window.addEventListener('pointerup', globalPointerUp);
+    };
+
+    const handlePointerUp = (e?: React.PointerEvent<HTMLInputElement> | PointerEvent) => {
+      setIsPointerDown(false);
+      activePointerId.current = null;
+      console.debug('slider: pointerup', prop, 'event=', !!e);
+      // remove global listeners
+      window.removeEventListener('pointermove', globalPointerMove);
+      window.removeEventListener('pointerup', globalPointerUp);
+      // commit local drag value to parent if present
+      if (dragValueRef.current !== null) {
+        handleChange(prop as keyof CarSetup, dragValueRef.current);
+      }
+      dragValueRef.current = null;
+      // If this is a React pointer event, try to release capture from the element
+      try {
+        if (e && (e as React.PointerEvent<HTMLInputElement>).currentTarget) {
+          const ev = e as React.PointerEvent<HTMLInputElement>;
+          console.debug('slider: releasePointerCapture', prop, 'pointerId=', ev.pointerId);
+          ev.currentTarget.releasePointerCapture(ev.pointerId);
+        } else {
+          const input = inputRef.current;
+          const pe = e as PointerEvent | undefined;
+          if (input && pe && typeof pe.pointerId === 'number') {
+            try {
+              (input as any).releasePointerCapture(pe.pointerId);
+            } catch (err) {
+              // ignore
+            }
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    const computeValueFromClientX = (clientX: number) => {
+      const input = inputRef.current;
+      if (!input) return null;
+      const rect = input.getBoundingClientRect();
+      const left = rect.left;
+      const width = rect.width || 1;
+      let frac = (clientX - left) / width;
+      if (frac < 0) frac = 0;
+      if (frac > 1) frac = 1;
+      const minVal = Number(min);
+      const maxVal = Number(max);
+      const raw = minVal + frac * (maxVal - minVal);
+      const stepVal = Number(step) || 1;
+      const stepped = Math.round((raw - minVal) / stepVal) * stepVal + minVal;
+      const precision = (stepVal.toString().split('.')[1] || '').length;
+      return precision > 0 ? Number(stepped.toFixed(precision)) : stepped;
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLInputElement>) => {
+      if (isPointerDown) {
+        const value = computeValueFromClientX(e.clientX);
+        if (value !== null) {
+          console.debug('slider: pointermove', prop, 'pointerId=', e.pointerId, 'value=', value, 'x=', e.clientX);
+          dragValueRef.current = value;
+          if (inputRef.current) inputRef.current.value = String(value);
+          if (displayRef.current) displayRef.current.textContent = `${value} ${unit}`;
+        }
+      }
+    };
+
+    const globalPointerMove = (e: PointerEvent) => {
+      if (activePointerId.current !== null && e.pointerId === activePointerId.current) {
+        const value = computeValueFromClientX(e.clientX);
+        if (value !== null) {
+          console.debug('slider: globalPointerMove', prop, 'pointerId=', e.pointerId, 'value=', value, 'x=', e.clientX);
+          dragValueRef.current = value;
+          if (inputRef.current) inputRef.current.value = String(value);
+          if (displayRef.current) displayRef.current.textContent = `${value} ${unit}`;
+        }
+      }
+    };
+
+    const globalPointerUp = (e: PointerEvent) => {
+      handlePointerUp(e);
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = Number(e.target.value);
+      if (isPointerDown) {
+        // update local drag value and DOM display only while dragging
+        dragValueRef.current = val;
+        if (displayRef.current) displayRef.current.textContent = `${val} ${unit}`;
+        return;
+      }
+      handleChange(prop as keyof CarSetup, val);
+    };
+
+    React.useEffect(() => {
+      return () => {
+        window.removeEventListener('pointermove', globalPointerMove);
+        window.removeEventListener('pointerup', globalPointerUp);
+      };
+    }, []);
+
+    return (
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-1 text-slate-300">
+          <div className="flex items-center gap-2 relative group">
+              <Icon size={14} className={color} />
+              <span className="text-xs font-medium cursor-help border-b border-dotted border-slate-600">
+                  {getLabel(labelKey)}
+              </span>
+              <div className="ml-1">
+                  <Info size={12} className="text-slate-500 hover:text-slate-300 transition-colors" />
+              </div>
+              {/* Tooltip */}
+              <div className="absolute left-0 bottom-full mb-2 w-48 sm:w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  {SETUP_DESCRIPTIONS[prop as keyof CarSetup][lang]}
+                  <div className="absolute bottom-[-4px] left-4 w-2 h-2 bg-slate-950 border-r border-b border-slate-700 transform rotate-45"></div>
+              </div>
+          </div>
+          <span ref={displayRef} className="text-[10px] font-mono text-cyan-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 min-w-[30px] text-center">
+            {setup[prop as keyof CarSetup]} {unit}
+          </span>
         </div>
-        <span className="text-[10px] font-mono text-cyan-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 min-w-[30px] text-center">
-          {setup[prop as keyof CarSetup]} {unit}
-        </span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          ref={inputRef}
+          value={isPointerDown ? undefined as any : setup[prop as keyof CarSetup]}
+          onChange={handleInputChange}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={(e) => handlePointerUp(e)}
+          className="w-full cursor-pointer focus:outline-none"
+        />
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={setup[prop as keyof CarSetup]}
-        onChange={(e) => handleChange(prop as keyof CarSetup, Number(e.target.value))}
-        className="w-full cursor-pointer focus:outline-none"
-      />
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg flex flex-col lg:h-full h-auto">
