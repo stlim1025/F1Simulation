@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { CarSetup, TrackData, SimulationResult } from "../types";
+import { CarSetup, TrackData, SimulationResult, Language } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -22,40 +22,45 @@ const FOCUS_AREAS = [
 export const getRaceEngineerFeedback = async (
   setup: CarSetup,
   track: TrackData,
-  result: Omit<SimulationResult, 'aiAnalysis'>
+  result: Omit<SimulationResult, 'aiAnalysis'>,
+  lang: Language
 ): Promise<string> => {
   try {
     // Randomly select persona and focus area to ensure variety
     const randomPersona = PERSONAS[Math.floor(Math.random() * PERSONAS.length)];
     const randomFocus = FOCUS_AREAS[Math.floor(Math.random() * FOCUS_AREAS.length)];
+    const languageInstruction = lang === 'en' ? "Respond in English." : "Respond in Korean.";
 
     const prompt = `
-      당신은 F1 레이스 엔지니어입니다. 아래 설정된 '성격'에 완전히 몰입하여 연기하세요.
-      드라이버의 주행 데이터를 분석하고 피드백을 주어야 합니다.
+      You are an F1 Race Engineer. Act fully according to the 'Persona' below.
+      Analyze the driver's lap data and provide feedback.
+      
+      ${languageInstruction}
 
+      Persona (Adapt this style to the target language):
       ${randomPersona}
       
-      트랙 정보:
-      - 이름: ${track.name}
-      - 특성: 다운포스(${track.characteristics.downforce}), 속도(${track.characteristics.speed})
+      Track Info:
+      - Name: ${track.name[lang]}
+      - Characteristics: Downforce(${track.characteristics.downforce}), Speed(${track.characteristics.speed})
       
-      현재 셋업:
-      - 윙: F${setup.frontWing}/R${setup.rearWing}
-      - 디퍼런셜: On${setup.onThrottleDiff}%/Off${setup.offThrottleDiff}%
-      - 서스펜션 강성: F${setup.frontSuspension}/R${setup.rearSuspension}
-      - 타이어: ${setup.tireCompound} (압력 F${setup.frontTirePressure}/R${setup.rearTirePressure})
+      Current Setup:
+      - Wing: F${setup.frontWing}/R${setup.rearWing}
+      - Diff: On${setup.onThrottleDiff}%/Off${setup.offThrottleDiff}%
+      - Suspension: F${setup.frontSuspension}/R${setup.rearSuspension}
+      - Tires: ${setup.tireCompound} (PSI F${setup.frontTirePressure}/R${setup.rearTirePressure})
       
-      결과 데이터:
-      - 랩 타임: ${result.lapTime.toFixed(3)}s (목표: ${track.baseLapTime}s)
-      - 타이어 마모: ${result.tireWear.toFixed(1)}%
+      Result Data:
+      - Lap Time: ${result.lapTime.toFixed(3)}s (Target: ${track.baseLapTime}s)
+      - Tire Wear: ${result.tireWear.toFixed(1)}%
       
       ${randomFocus}
 
-      작성 지침:
-      1. 성격에 맞는 어조를 유지하며 한국어로 작성하세요. (약 3문장)
-      2. 랩타임 결과에 대해 성격에 맞게 반응하세요 (칭찬, 비난, 건조한 분석 등).
-      3. 지정된 '분석 중점'과 관련된 구체적인 셋업 변경 수치를 제안하세요. (예: "프론트 윙을 2 클릭 낮춰", "공기압을 0.5psi 올려")
-      4. 매번 똑같은 인삿말을 하지 말고 바로 본론으로 들어가세요.
+      Instructions:
+      1. Maintain the persona's tone. (Approx 3 sentences)
+      2. React to the lap time (Praise, Scold, or Analyze based on persona).
+      3. Suggest specific setup changes related to the 'Focus Area'. (e.g., "Lower front wing by 2 clicks")
+      4. Skip greetings, go straight to the point.
     `;
 
     const response = await ai.models.generateContent({
@@ -67,9 +72,9 @@ export const getRaceEngineerFeedback = async (
       }
     });
 
-    return response.text || "무전 잡음... 데이터 전송 실패.";
+    return response.text || (lang === 'en' ? "Radio static... Data lost." : "무전 잡음... 데이터 전송 실패.");
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "엔지니어 무전: 통신 장애 발생. 텔레메트리 직접 확인 바람.";
+    return lang === 'en' ? "Radio Error: Check telemetry manually." : "엔지니어 무전: 통신 장애 발생. 텔레메트리 직접 확인 바람.";
   }
 };

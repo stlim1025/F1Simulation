@@ -10,19 +10,24 @@ import {
   Cell,
   ReferenceLine
 } from 'recharts';
-import { SimulationResult } from '../types';
+import { SimulationResult, Language } from '../types';
+import { TRANSLATIONS } from '../constants';
 
 interface Props {
   history: SimulationResult[];
   baseLapTime: number;
+  lang: Language;
+  formatTime: (sec: number) => string;
 }
 
-const LapHistoryChart: React.FC<Props> = ({ history, baseLapTime }) => {
+const LapHistoryChart: React.FC<Props> = ({ history, baseLapTime, lang, formatTime }) => {
+  const t = TRANSLATIONS[lang];
+
   const data = history.map((run) => ({
     name: `Run ${run.runNumber}`,
     lapTime: run.lapTime,
     diff: run.lapTime - baseLapTime,
-    formattedTime: run.lapTime.toFixed(3),
+    formattedTime: formatTime(run.lapTime),
   }));
 
   const minTime = Math.min(...history.map(h => h.lapTime), baseLapTime) * 0.98;
@@ -34,9 +39,9 @@ const LapHistoryChart: React.FC<Props> = ({ history, baseLapTime }) => {
       return (
         <div className="bg-slate-900 border border-slate-700 p-3 rounded shadow-xl text-xs">
           <p className="font-bold text-slate-300 mb-1">{label}</p>
-          <p className="text-white text-sm font-mono">{payload[0].value.toFixed(3)}s</p>
+          <p className="text-white text-sm font-mono">{formatTime(payload[0].value)}</p>
           <p className={`${diff < 0 ? 'text-green-500' : 'text-red-500'}`}>
-            기준 대비: {diff > 0 ? '+' : ''}{diff.toFixed(3)}s
+            {t.diff}: {diff > 0 ? '+' : ''}{diff.toFixed(3)}s
           </p>
         </div>
       );
@@ -47,9 +52,9 @@ const LapHistoryChart: React.FC<Props> = ({ history, baseLapTime }) => {
   return (
     <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg mt-6">
       <h3 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider flex justify-between">
-          <span>랩 타임 히스토리</span>
+          <span>{t.history}</span>
           <span className="text-[10px] normal-case bg-slate-800 px-2 py-1 rounded text-slate-500">
-              기준 랩타임: {baseLapTime.toFixed(3)}s
+              {t.baseTime}: {formatTime(baseLapTime)}
           </span>
       </h3>
       <div className="h-[200px] w-full">

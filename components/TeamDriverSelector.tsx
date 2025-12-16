@@ -1,6 +1,6 @@
 import React from 'react';
-import { TEAMS, DRIVERS } from '../constants';
-import { Team, Driver } from '../types';
+import { TEAMS, DRIVERS, TRANSLATIONS } from '../constants';
+import { Team, Driver, Language } from '../types';
 import { Users, ChevronRight, Check } from 'lucide-react';
 
 interface Props {
@@ -8,10 +8,12 @@ interface Props {
   selectedDriver: Driver | null;
   onSelectTeam: (team: Team) => void;
   onSelectDriver: (driver: Driver) => void;
+  lang: Language;
 }
 
-const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onSelectTeam, onSelectDriver }) => {
+const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onSelectTeam, onSelectDriver, lang }) => {
   const teamDrivers = selectedTeam ? DRIVERS.filter(d => d.teamId === selectedTeam.id) : [];
+  const t = TRANSLATIONS[lang];
 
   // Helper to handle image errors by setting a placeholder
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>, name: string) => {
@@ -21,13 +23,13 @@ const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onS
   return (
     <div className="mb-8 bg-slate-900/50 rounded-xl border border-slate-800 p-6">
       <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-        <Users className="text-blue-500" /> 2026 시즌 팀 & 드라이버 선택
+        <Users className="text-blue-500" /> {t.selectTeamDriver}
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Team Selection */}
         <div>
-          <h3 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">컨스트럭터 선택</h3>
+          <h3 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">{t.constructor}</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {TEAMS.map((team) => (
               <button
@@ -48,12 +50,12 @@ const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onS
                 <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center overflow-hidden p-1 shadow-sm">
                     <img 
                         src={team.logo} 
-                        alt={team.name} 
+                        alt={team.name[lang]} 
                         className="w-full h-full object-contain"
-                        onError={(e) => handleImageError(e, team.name)}
+                        onError={(e) => handleImageError(e, team.name.en)}
                     />
                 </div>
-                <div className="text-[10px] text-center font-bold text-white leading-tight group-hover:text-blue-400 transition-colors">{team.name}</div>
+                <div className="text-[10px] text-center font-bold text-white leading-tight group-hover:text-blue-400 transition-colors">{team.name[lang]}</div>
                 {selectedTeam?.id === team.id && (
                     <div className="absolute top-1 right-1 bg-blue-500 rounded-full p-0.5">
                         <Check size={8} className="text-white"/>
@@ -66,10 +68,10 @@ const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onS
 
         {/* Driver Selection */}
         <div>
-           <h3 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">드라이버 선택</h3>
+           <h3 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">{t.driver}</h3>
            {!selectedTeam ? (
                <div className="h-32 flex items-center justify-center border border-dashed border-slate-800 rounded-lg text-slate-600 text-sm">
-                   팀을 먼저 선택해주세요
+                   {t.noTeam}
                </div>
            ) : (
                <div className="grid grid-cols-2 gap-4">
@@ -86,14 +88,14 @@ const TeamDriverSelector: React.FC<Props> = ({ selectedTeam, selectedDriver, onS
                            <div className="w-12 h-12 rounded bg-slate-800 overflow-hidden border border-slate-700 flex-shrink-0">
                                <img 
                                    src={driver.photo} 
-                                   alt={driver.name} 
+                                   alt={driver.name[lang]} 
                                    className="w-full h-full object-cover" 
-                                   onError={(e) => handleImageError(e, driver.name)}
+                                   onError={(e) => handleImageError(e, driver.name.en)}
                                />
                            </div>
                            <div>
                                <div className="text-xs text-slate-500 font-mono">#{driver.number}</div>
-                               <div className="font-bold text-white text-sm">{driver.name}</div>
+                               <div className="font-bold text-white text-sm">{driver.name[lang]}</div>
                                <div className="flex gap-2 mt-1">
                                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-950 rounded text-slate-400 border border-slate-800" title="Skill">
                                        SK: {(driver.skill * 100).toFixed(0)}

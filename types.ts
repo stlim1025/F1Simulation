@@ -1,13 +1,20 @@
 export enum TireCompound {
-  SOFT = '소프트',
-  MEDIUM = '미디엄',
-  HARD = '하드',
-  WET = '웨트',
+  SOFT = 'SOFT',
+  MEDIUM = 'MEDIUM',
+  HARD = 'HARD',
+  WET = 'WET',
+}
+
+export type Language = 'ko' | 'en';
+
+export interface LocalizedString {
+  ko: string;
+  en: string;
 }
 
 export interface Team {
   id: string;
-  name: string;
+  name: LocalizedString;
   logo: string; // URL
   performanceFactor: number; // 0.98 (Best) ~ 1.02 (Worst) - Multiplier for lap time
   color: string; // Hex code
@@ -15,11 +22,11 @@ export interface Team {
 
 export interface Driver {
   id: string;
-  name: string;
+  name: LocalizedString;
   teamId: string;
   photo: string; // URL
   number: number;
-  skill: number; // 0.0 ~ 1.0 (Subtracts up to 0.5s from lap time)
+  skill: number; // 0.0 ~ 1.0 (Subtracts time)
   consistency: number; // 0.0 ~ 1.0 (Reduces randomness variance)
 }
 
@@ -52,13 +59,13 @@ export interface CarSetup {
 
 export interface TrackData {
   id: string;
-  name: string;
-  country: string;
-  description: string;
+  name: LocalizedString;
+  country: LocalizedString;
+  description: LocalizedString;
   characteristics: {
-    downforce: '낮음' | '중간' | '높음';
-    tireWear: '낮음' | '중간' | '높음';
-    speed: '낮음' | '중간' | '높음';
+    downforce: 'Low' | 'Medium' | 'High';
+    tireWear: 'Low' | 'Medium' | 'High';
+    speed: 'Low' | 'Medium' | 'High';
   };
   baseLapTime: number; // in seconds
   idealSetup: {

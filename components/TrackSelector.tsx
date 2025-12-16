@@ -1,18 +1,22 @@
 import React from 'react';
-import { TrackData } from '../types';
+import { TrackData, Language } from '../types';
 import { Map, Flag } from 'lucide-react';
+import { TRANSLATIONS } from '../constants';
 
 interface Props {
   tracks: TrackData[];
   selectedTrack: TrackData;
   onSelect: (track: TrackData) => void;
+  lang: Language;
 }
 
-const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect }) => {
+const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect, lang }) => {
+  const t = TRANSLATIONS[lang];
+  
   return (
     <div className="mb-8">
       <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-        <Map className="text-green-500" /> 서킷 선택
+        <Map className="text-green-500" /> {t.selectTrack}
       </h2>
       <div className="relative group">
         <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
@@ -29,21 +33,21 @@ const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect }) => 
                       }`}
                   >
                       <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate max-w-[80%]">{track.country}</span>
+                          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate max-w-[80%]">{track.country[lang]}</span>
                           {isSelected && <Flag size={16} className="text-green-500 animate-pulse flex-none" />}
                       </div>
-                      <h3 className="text-lg font-bold text-white leading-tight mb-2 truncate">{track.name}</h3>
+                      <h3 className="text-lg font-bold text-white leading-tight mb-2 truncate">{track.name[lang]}</h3>
                       
                       <div className="flex gap-2 mb-3">
                           <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
-                              DF: {track.characteristics.downforce}
+                              DF: {t.characteristics[track.characteristics.downforce]}
                           </span>
                           <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
-                              속도: {track.characteristics.speed}
+                              {t.spd}: {t.characteristics[track.characteristics.speed]}
                           </span>
                       </div>
 
-                      <p className="text-xs text-slate-500 line-clamp-2 h-8">{track.description}</p>
+                      <p className="text-xs text-slate-500 line-clamp-2 h-8">{track.description[lang]}</p>
                   </button>
               )
           })}

@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
-import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver } from './types';
-import { DEFAULT_SETUP, TRACKS } from './constants';
+import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver, Language } from './types';
+import { DEFAULT_SETUP, TRACKS, TRANSLATIONS } from './constants';
 import CarSetupPanel from './components/CarSetupPanel';
 import TrackSelector from './components/TrackSelector';
 import TeamDriverSelector from './components/TeamDriverSelector';
 import TelemetryCharts from './components/TelemetryCharts';
 import LapHistoryChart from './components/LapHistoryChart';
 import { getRaceEngineerFeedback } from './services/geminiService';
-import { Play, RotateCcw, Cpu, Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, ChevronRight, Users } from 'lucide-react';
+import { Play, RotateCcw, Cpu, Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, ChevronRight, Users, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
   const [setup, setSetup] = useState<CarSetup>(DEFAULT_SETUP);
@@ -17,13 +17,20 @@ const App: React.FC = () => {
   const [isSimulating, setIsSimulating] = useState(false);
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
   const [history, setHistory] = useState<SimulationResult[]>([]);
+  const [lang, setLang] = useState<Language>('ko');
 
-  // Helper to format seconds into M:SS.mmm
+  const t = TRANSLATIONS[lang];
+
+  // Helper to format seconds into MM:SS.mmm
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 1000);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+  };
+
+  const toggleLanguage = () => {
+      setLang(prev => prev === 'ko' ? 'en' : 'ko');
   };
 
   const getSetupDiff = (current: CarSetup, previous: CarSetup) => {
@@ -47,44 +54,49 @@ const App: React.FC = () => {
           diffs.push(`${previous.tireCompound}→${current.tireCompound}`);
       }
       
-      return diffs.length > 0 ? diffs.join(', ') : '변경 사항 없음';
+      return diffs.length > 0 ? diffs.join(', ') : t.noChanges;
   };
 
   const runSimulation = useCallback(async () => {
     setIsSimulating(true);
 
     // Default Stats if no driver/team selected
-    const teamFactor = selectedTeam ? selectedTeam.performanceFactor : 1.0; // 1.0 is average, <1 is faster
-    const driverSkill = selectedDriver ? selectedDriver.skill : 0.85; // 0.85 is avg driver
+    const teamFactor = selectedTeam ? selectedTeam.performanceFactor : 1.0; 
+    const driverSkill = selectedDriver ? selectedDriver.skill : 0.85; 
     const driverConsistency = selectedDriver ? selectedDriver.consistency : 0.85;
 
-    // --- ENHANCED PHYSICS APPROXIMATION LOGIC ---
-    
+    // PHYSICS UPDATE V3.1
+    // Goal: Make Setup dominate. Reduce Team/Driver spread.
+
     // 1. Aerodynamics (Wings 0-50)
     const avgWing = (setup.frontWing + setup.rearWing) / 2;
-    const dragFactor = (avgWing / 50) * 0.15; // Max 15% speed penalty on straights
-    const downforceFactor = (avgWing / 50) * 0.25; // Max 25% speed bonus in corners
+    // Drag affects straights.
+    const dragFactor = (avgWing / 50) * 0.15; // Max 15% speed penalty
+    // Downforce affects corners.
+    const downforceFactor = (avgWing / 50) * 0.25; // Max 25% corner grip
 
-    // Track Penalty: Deviation from ideal wing
+    // Setup Penalty: Wing Angle vs Track Ideal
+    // Doubled the penalty multiplier (0.05 -> 0.1)
     const trackIdealWing = selectedTrack.idealSetup.wingAngle;
     const wingDelta = Math.abs(avgWing - trackIdealWing);
-    const timePenaltyAero = wingDelta * 0.05; 
+    const timePenaltyAero = wingDelta * 0.1; // 10 clicks off = 1.0s penalty
 
     // 2. Suspension & Balance
     const idealSuspensionVal = selectedTrack.idealSetup.stiffness * 4; 
     const avgSuspension = (setup.frontSuspension + setup.rearSuspension) / 2;
     const suspDelta = Math.abs(avgSuspension - idealSuspensionVal);
-    const timePenaltySusp = suspDelta * 0.02;
+    // Increased penalty multiplier (0.02 -> 0.04)
+    const timePenaltySusp = suspDelta * 0.04;
 
     const balanceBias = setup.frontSuspension - setup.rearSuspension; 
-    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.2 : 0;
+    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.4 : 0; // Penalty doubled
 
     // 3. Differential
-    const diffPenalty = (Math.abs(setup.onThrottleDiff - 75) * 0.005) + (Math.abs(setup.offThrottleDiff - 60) * 0.005);
+    const diffPenalty = (Math.abs(setup.onThrottleDiff - 75) * 0.01) + (Math.abs(setup.offThrottleDiff - 60) * 0.01);
 
     // 4. Brakes
     const brakeGain = (setup.brakePressure - 80) * 0.01; 
-    const lockupRisk = (setup.brakePressure > 95) ? Math.random() * 0.3 * (1.1 - driverConsistency) : 0; // High consistency reduces lockup punishment
+    const lockupRisk = (setup.brakePressure > 95) ? Math.random() * 0.3 * (1.1 - driverConsistency) : 0; 
 
     // 5. Tires & Pressures
     let tireGrip = 1.0;
@@ -97,12 +109,15 @@ const App: React.FC = () => {
         case TireCompound.WET: tireGrip = 0.8; tireWearRate = 1.5; break; 
     }
 
-    const pressurePenalty = (Math.abs(setup.frontTirePressure - 23) + Math.abs(setup.rearTirePressure - 21)) * 0.05;
+    // Increased pressure penalty
+    const pressurePenalty = (Math.abs(setup.frontTirePressure - 23) + Math.abs(setup.rearTirePressure - 21)) * 0.1;
 
     // --- TOTAL LAP TIME CALCULATION ---
     let finalLapTime = selectedTrack.baseLapTime;
     
-    // Apply Team Performance Factor (Multiplier on base time)
+    // Apply Team Performance Factor
+    // Factor is now very compressed (0.995 ~ 1.005). 
+    // On 90s lap, range is 89.55s ~ 90.45s (0.9s diff).
     finalLapTime = finalLapTime * teamFactor;
 
     // Add penalties & Subtract gains
@@ -115,14 +130,14 @@ const App: React.FC = () => {
     finalLapTime -= brakeGain;
     finalLapTime -= (tireGrip * 0.5); // Grip bonus
     
-    // Apply Driver Skill (Subtract raw time)
-    // Skill 1.0 removes 0.5s, Skill 0.5 removes 0.25s
-    const skillBonus = driverSkill * 0.5;
+    // Apply Driver Skill - MASSIVELY REDUCED
+    // Old: 0.2 factor. New: 0.05 factor.
+    // Skill 1.0 removes 0.05s. Skill 0.8 removes 0.04s. Diff is negligible (0.01s).
+    const skillBonus = driverSkill * 0.05;
     finalLapTime -= skillBonus;
 
     // Add randomness (Driver inconsistency)
-    // Consistency 1.0 -> 0 variance, 0.0 -> 0.4s variance
-    const variance = (1.0 - driverConsistency) * 0.4;
+    const variance = (1.0 - driverConsistency) * 0.15;
     finalLapTime += (Math.random() - 0.5) * variance;
 
     // --- TELEMETRY GENERATION ---
@@ -195,7 +210,7 @@ const App: React.FC = () => {
         team: selectedTeam || undefined
     };
 
-    const aiFeedback = await getRaceEngineerFeedback(setup, selectedTrack, resultWithoutAI);
+    const aiFeedback = await getRaceEngineerFeedback(setup, selectedTrack, resultWithoutAI, lang);
 
     const finalResult = {
         ...resultWithoutAI,
@@ -205,7 +220,7 @@ const App: React.FC = () => {
     setSimResult(finalResult);
     setHistory(prev => [...prev, finalResult]);
     setIsSimulating(false);
-  }, [setup, selectedTrack, history, selectedTeam, selectedDriver]);
+  }, [setup, selectedTrack, history, selectedTeam, selectedDriver, lang]);
 
   const handleTrackSelect = (track: TrackData) => {
       setSelectedTrack(track);
@@ -224,7 +239,7 @@ const App: React.FC = () => {
         <div className="container mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3 select-none">
                 <img 
-                    src="./images/rilakkuma-f1.png" 
+                    src="./rilakkuma-f1.png" 
                     alt="Rilakkuma F1" 
                     className="h-12 md:h-14 w-auto object-contain filter drop-shadow-[0_0_10px_rgba(250,204,21,0.3)] hover:scale-105 transition-transform duration-300"
                 />
@@ -232,8 +247,18 @@ const App: React.FC = () => {
                     F1 <span className="text-yellow-400">Simulator</span>
                 </h1>
             </div>
-            <div className="text-xs text-slate-500 font-mono hidden md:block">
-                시뮬레이션 엔진 V3.0 // PRO PHYSICS
+            
+            <div className="flex items-center gap-4">
+                <div className="text-xs text-slate-500 font-mono hidden md:block">
+                    {t.subtitle}
+                </div>
+                <button 
+                    onClick={toggleLanguage}
+                    className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-full border border-slate-700 transition-colors text-xs font-bold"
+                >
+                    <Globe size={14}/>
+                    {lang === 'ko' ? 'ENG' : 'KOR'}
+                </button>
             </div>
         </div>
       </header>
@@ -244,6 +269,7 @@ const App: React.FC = () => {
             tracks={TRACKS} 
             selectedTrack={selectedTrack} 
             onSelect={handleTrackSelect} 
+            lang={lang}
         />
 
         <TeamDriverSelector 
@@ -251,6 +277,7 @@ const App: React.FC = () => {
             selectedDriver={selectedDriver} 
             onSelectTeam={handleTeamSelect}
             onSelectDriver={setSelectedDriver}
+            lang={lang}
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -260,6 +287,7 @@ const App: React.FC = () => {
                     onChange={setSetup} 
                     onRun={runSimulation}
                     isSimulating={isSimulating}
+                    lang={lang}
                 />
             </div>
 
@@ -268,18 +296,18 @@ const App: React.FC = () => {
                     <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
                         <Trophy className="text-slate-700 mb-4" size={64} />
                         <p className="text-slate-500 text-lg text-center px-4">
-                            {!selectedDriver ? "팀과 드라이버를 선택하고 시뮬레이션을 시작하세요" : "준비 완료! 시뮬레이션을 실행하세요"}
+                            {!selectedDriver ? t.selectPrompt : t.ready}
                         </p>
                     </div>
                 ) : (
                     <div className="animate-fade-in space-y-8">
-                        <LapHistoryChart history={history} baseLapTime={selectedTrack.baseLapTime} />
+                        <LapHistoryChart history={history} baseLapTime={selectedTrack.baseLapTime} lang={lang} formatTime={formatTime} />
 
                         {[...history].reverse().map((run, index) => {
                             const isLatest = index === 0;
                             const previousRun = history.find(h => h.runNumber === run.runNumber - 1);
                             const lapTimeDelta = previousRun ? run.lapTime - previousRun.lapTime : 0;
-                            const setupChanges = previousRun ? getSetupDiff(run.setupSnapshot, previousRun.setupSnapshot) : "초기 설정";
+                            const setupChanges = previousRun ? getSetupDiff(run.setupSnapshot, previousRun.setupSnapshot) : t.initial;
 
                             return (
                                 <div key={run.runNumber} className={`border rounded-xl overflow-hidden transition-all ${isLatest ? 'bg-slate-900 border-slate-700 shadow-2xl' : 'bg-slate-900/50 border-slate-800 opacity-80 hover:opacity-100'}`}>
@@ -291,7 +319,7 @@ const App: React.FC = () => {
                                             </span>
                                             {run.driver && (
                                                 <div className="flex items-center gap-2 bg-slate-950 px-2 py-1 rounded border border-slate-800">
-                                                    <span className="text-xs font-bold text-white">{run.driver.name}</span>
+                                                    <span className="text-xs font-bold text-white">{run.driver.name[lang]}</span>
                                                     <span className="text-[10px] text-slate-500">#{run.driver.number}</span>
                                                 </div>
                                             )}
@@ -317,16 +345,16 @@ const App: React.FC = () => {
                                         </div>
 
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                                            <StatBox label="랩 타임" value={formatTime(run.lapTime)} 
-                                                subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs 목표`}
+                                            <StatBox label={t.lapTime} value={formatTime(run.lapTime)} 
+                                                subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs ${t.target}`}
                                                 subColor={run.lapTime < selectedTrack.baseLapTime ? 'text-green-500' : 'text-red-500'}
                                                 icon={Clock}
                                             />
-                                            <StatBox label="타이어 마모" value={`${run.tireWear.toFixed(1)}%`} 
-                                                subValue={`예상 ${Math.max(1, Math.floor(100/run.tireWear))} 랩`}
+                                            <StatBox label={t.tireWear} value={`${run.tireWear.toFixed(1)}%`} 
+                                                subValue={`${t.estLaps} ${Math.max(1, Math.floor(100/run.tireWear))}`}
                                                 icon={Disc}
                                             />
-                                            <StatBox label="최고 속도" value={`${Math.max(...run.telemetry.map(t => t.speed))}`} 
+                                            <StatBox label={t.topSpeed} value={`${Math.max(...run.telemetry.map(t => t.speed))}`} 
                                                 unit="km/h"
                                                 icon={Activity}
                                             />
@@ -334,7 +362,7 @@ const App: React.FC = () => {
 
                                         <div className={`p-4 rounded-lg mb-4 ${isLatest ? 'bg-gradient-to-r from-slate-800 to-slate-900 border-l-4 border-cyan-500' : 'bg-slate-950 border border-slate-800'}`}>
                                             <h3 className={`font-bold uppercase tracking-wider text-xs mb-2 flex items-center gap-2 ${isLatest ? 'text-cyan-400' : 'text-slate-500'}`}>
-                                                <Cpu size={14}/> 엔지니어 피드백
+                                                <Cpu size={14}/> {t.engineer}
                                             </h3>
                                             <p className={`font-mono text-sm leading-relaxed ${isLatest ? 'text-slate-200' : 'text-slate-500'}`}>
                                                 "{run.aiAnalysis}"
