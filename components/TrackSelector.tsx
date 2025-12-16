@@ -19,7 +19,8 @@ const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect, lang 
         <Map className="text-green-500" /> {t.selectTrack}
       </h2>
       <div className="relative group">
-        <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
+        {/* Added p-4 to prevent shadow clipping, and pr-16 to ensure the last item clears the gradient */}
+        <div className="flex overflow-x-auto gap-4 p-4 pr-16 snap-x snap-mandatory scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
           {tracks.map((track) => {
               const isSelected = selectedTrack.id === track.id;
               return (
@@ -28,7 +29,7 @@ const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect, lang 
                       onClick={() => onSelect(track)}
                       className={`flex-none w-72 relative overflow-hidden text-left p-4 rounded-xl border transition-all duration-300 snap-center ${
                           isSelected
-                          ? 'bg-gradient-to-br from-slate-800 to-slate-900 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.2)] scale-[1.02]'
+                          ? 'bg-gradient-to-br from-slate-800 to-slate-900 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)] scale-[1.02] z-10'
                           : 'bg-slate-900 border-slate-800 hover:border-slate-600 opacity-70 hover:opacity-100'
                       }`}
                   >
@@ -52,8 +53,8 @@ const TrackSelector: React.FC<Props> = ({ tracks, selectedTrack, onSelect, lang 
               )
           })}
         </div>
-        {/* Gradient Fade for scroll indication */}
-        <div className="absolute top-0 right-0 h-full w-12 bg-gradient-to-l from-[#0f172a] to-transparent pointer-events-none group-hover:from-slate-900/0 transition-all" />
+        {/* Gradient Fade for scroll indication - adjusted to not block interaction too much */}
+        <div className="absolute top-0 right-0 h-full w-12 bg-gradient-to-l from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none group-hover:from-slate-900/0 transition-all rounded-r-xl" />
       </div>
     </div>
   );

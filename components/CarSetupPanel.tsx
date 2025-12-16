@@ -35,7 +35,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
     const handlePointerDown = (e: React.PointerEvent<HTMLInputElement>) => {
       setIsPointerDown(true);
       activePointerId.current = e.pointerId;
-      console.debug('slider: pointerdown', prop, 'pointerId=', e.pointerId, 'value=', e.currentTarget.value, 'x=', e.clientX);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch (err) {
@@ -55,7 +54,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
     const handlePointerUp = (e?: React.PointerEvent<HTMLInputElement> | PointerEvent) => {
       setIsPointerDown(false);
       activePointerId.current = null;
-      console.debug('slider: pointerup', prop, 'event=', !!e);
       // remove global listeners
       window.removeEventListener('pointermove', globalPointerMove);
       window.removeEventListener('pointerup', globalPointerUp);
@@ -68,7 +66,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
       try {
         if (e && (e as React.PointerEvent<HTMLInputElement>).currentTarget) {
           const ev = e as React.PointerEvent<HTMLInputElement>;
-          console.debug('slider: releasePointerCapture', prop, 'pointerId=', ev.pointerId);
           ev.currentTarget.releasePointerCapture(ev.pointerId);
         } else {
           const input = inputRef.current;
@@ -108,7 +105,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
       if (isPointerDown) {
         const value = computeValueFromClientX(e.clientX);
         if (value !== null) {
-          console.debug('slider: pointermove', prop, 'pointerId=', e.pointerId, 'value=', value, 'x=', e.clientX);
           dragValueRef.current = value;
           if (inputRef.current) inputRef.current.value = String(value);
           if (displayRef.current) displayRef.current.textContent = `${value} ${unit}`;
@@ -120,7 +116,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
       if (activePointerId.current !== null && e.pointerId === activePointerId.current) {
         const value = computeValueFromClientX(e.clientX);
         if (value !== null) {
-          console.debug('slider: globalPointerMove', prop, 'pointerId=', e.pointerId, 'value=', value, 'x=', e.clientX);
           dragValueRef.current = value;
           if (inputRef.current) inputRef.current.value = String(value);
           if (displayRef.current) displayRef.current.textContent = `${value} ${unit}`;
