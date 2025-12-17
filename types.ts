@@ -1,3 +1,4 @@
+
 export enum TireCompound {
   SOFT = 'SOFT',
   MEDIUM = 'MEDIUM',
@@ -73,9 +74,14 @@ export interface TrackData {
     stiffness: number; // General stiffness requirement (1-10 scale for calculation reference)
   };
   sectors: ('Straight' | 'Corner' | 'Chicane')[]; // Simplified track map for simulation
+  svgPath: string; // Fallback SVG Path string 'M 100 100 L ...'
+  viewBox: string; // Fallback SVG viewBox '0 0 1000 1000'
+  mapUrl?: string; // Optional: Path to external SVG file (e.g., ./images/circuits/baku.svg)
+  pathOffset: number; // 0.0 to 1.0 - Shifts the starting point along the path
 }
 
 export interface TelemetryPoint {
+  time: number; // Cumulative time in seconds
   distance: number;
   speed: number;
   throttle: number;

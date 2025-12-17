@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { CarSetup, TrackData, SimulationResult, Language } from "../types";
 
@@ -18,6 +19,14 @@ const FOCUS_AREAS = [
   "이번 랩 분석 중점: 연석 공략 시 서스펜션의 충격 흡수 능력",
   "이번 랩 분석 중점: 타이어 열 관리와 마모도 제어"
 ];
+
+// Helper to format seconds into MM:SS.mmm
+const formatTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+};
 
 export const getRaceEngineerFeedback = async (
   setup: CarSetup,
@@ -51,7 +60,7 @@ export const getRaceEngineerFeedback = async (
       - Tires: ${setup.tireCompound} (PSI F${setup.frontTirePressure}/R${setup.rearTirePressure})
       
       Result Data:
-      - Lap Time: ${result.lapTime.toFixed(3)}s (Target: ${track.baseLapTime}s)
+      - Lap Time: ${formatTime(result.lapTime)} (Target: ${formatTime(track.baseLapTime)})
       - Tire Wear: ${result.tireWear.toFixed(1)}%
       
       ${randomFocus}

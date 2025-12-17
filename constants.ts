@@ -1,3 +1,4 @@
+
 import { CarSetup, TireCompound, TrackData, Team, Driver, LocalizedString } from './types';
 
 export const TRANSLATIONS = {
@@ -36,6 +37,7 @@ export const TRANSLATIONS = {
     dist: "거리",
     spd: "속도",
     thr: "스로틀",
+    replay: "트랙 리플레이",
     characteristics: {
       Low: "낮음", Medium: "중간", High: "높음"
     },
@@ -90,6 +92,7 @@ export const TRANSLATIONS = {
     dist: "Dist",
     spd: "Speed",
     thr: "Throttle",
+    replay: "Track Replay",
     characteristics: {
       Low: "Low", Medium: "Medium", High: "High"
     },
@@ -113,10 +116,10 @@ export const TRANSLATIONS = {
 
 export const TIRE_COMPOUNDS_LABELS = {
   ko: {
-    [TireCompound.SOFT]: '소프트',
-    [TireCompound.MEDIUM]: '미디엄',
-    [TireCompound.HARD]: '하드',
-    [TireCompound.WET]: '웨트',
+    [TireCompound.SOFT]: '소프트 (Soft)',
+    [TireCompound.MEDIUM]: '미디엄 (Medium)',
+    [TireCompound.HARD]: '하드 (Hard)',
+    [TireCompound.WET]: '웨트 (Wet)',
   },
   en: {
     [TireCompound.SOFT]: 'Soft',
@@ -124,6 +127,13 @@ export const TIRE_COMPOUNDS_LABELS = {
     [TireCompound.HARD]: 'Hard',
     [TireCompound.WET]: 'Wet',
   }
+};
+
+export const TIRE_COMPOUNDS_COLORS = {
+    [TireCompound.SOFT]: '#ef4444', // Red
+    [TireCompound.MEDIUM]: '#eab308', // Yellow
+    [TireCompound.HARD]: '#f8fafc', // White
+    [TireCompound.WET]: '#3b82f6', // Blue
 };
 
 export const DEFAULT_SETUP: CarSetup = {
@@ -152,14 +162,20 @@ export const DEFAULT_SETUP: CarSetup = {
 export const SETUP_DESCRIPTIONS: Record<keyof CarSetup, LocalizedString> = {
   frontWing: { ko: "직선 위주 트랙은 낮게, 코너 위주는 높게 설정", en: "Lower for straights, Higher for corners" },
   rearWing: { ko: "높을수록 코너링 안정성 증가, 직선 속도 감소", en: "Higher means more stability but more drag" },
-  onThrottleDiff: { ko: "높으면(90%+) 탈출 가속 향상", en: "Higher(90%+) improves exit traction" },
-  offThrottleDiff: { ko: "낮으면(45%-) 코너 진입 회전 원활", en: "Lower(45%-) helps rotation on entry" },
+  onThrottleDiff: { 
+      ko: "가속 시 바퀴 회전차 제한. 높음(Lock): 탈출 트랙션↑ 언더스티어↑ / 낮음(Open): 회전 원활, 휠스핀 위험", 
+      en: "Higher(Lock): Better traction but understeer / Lower(Open): Better rotation but wheelspin risk" 
+  },
+  offThrottleDiff: { 
+      ko: "감속/코너 진입 시 회전차 제한. 높음(Lock): 제동 안정성↑ 회전↓ / 낮음(Open): 코너 진입 회전(Turn-in)↑ 오버스티어 위험", 
+      en: "Higher(Lock): Stability on entry / Lower(Open): Better turn-in, risk of oversteer" 
+  },
   frontSuspension: { ko: "높음(41): 반응성 / 낮음(1): 안정성", en: "High(41): Response / Low(1): Stability" },
   rearSuspension: { ko: "트랙 요철에 따라 강성 조절", en: "Adjust stiffness based on bumps" },
   frontAntiRollBar: { ko: "무게 이동 제어, 보통 낮게 설정", en: "Controls weight transfer, usually low" },
   rearAntiRollBar: { ko: "롤링 제어, 회전성 위해 높게 설정", en: "Controls roll, high for rotation" },
-  frontRideHeight: { ko: "낮을수록 좋지만 연석 주의", en: "Lower represents better CG" },
-  rearRideHeight: { ko: "프론트보다 높게 설정(레이크)", en: "Set higher than front (Rake)" },
+  frontRideHeight: { ko: "낮을수록 무게중심 이득, 너무 낮으면 바닥 긁힘", en: "Lower represents better CG, beware bottoming" },
+  rearRideHeight: { ko: "프론트보다 높게 설정(레이크)하여 다운포스 유도", en: "Set higher than front (Rake) for aero" },
   brakePressure: { ko: "높을수록 제동 짧음, 락업 위험", en: "High pressure: short braking, lockup risk" },
   brakeBias: { ko: "앞/뒤 제동 밸런스 조절", en: "Front/Rear braking balance" },
   frontTirePressure: { ko: "29 PSI 내외 조절", en: "Adjust around 29 PSI" },
@@ -167,9 +183,6 @@ export const SETUP_DESCRIPTIONS: Record<keyof CarSetup, LocalizedString> = {
   tireCompound: { ko: "트랙과 날씨에 맞춰 선택", en: "Select based on track/weather" }
 };
 
-// 2026 Teams Projection
-// Performance Factors compressed to 0.995 (Best) ~ 1.005 (Worst)
-// This makes the car choice matter less (~1.0s difference max on a 100s lap)
 export const TEAMS: Team[] = [
   { 
     id: 'mclaren', 
@@ -297,27 +310,35 @@ export const DRIVERS: Driver[] = [
   { id: 'bottas', name: { ko: '발테리 보타스', en: 'Valtteri Bottas' }, teamId: 'cadillac', number: 77, photo: './images/drivers/valtteri_bottas.png', skill: 0.89, consistency: 0.93 },
 ];
 
+// Stylized Track Paths (Simplified)
+// All viewbox: 0 0 1000 1000
+const BAHRAIN_PATH = "M 350 400 L 500 400 L 520 380 L 520 280 L 600 280 L 620 300 L 620 450 L 550 500 L 500 500 L 450 550 L 450 700 L 400 750 L 250 750 L 230 720 L 230 450 L 250 420 L 350 400 Z";
+const SAUDI_PATH = "M 450 100 L 550 100 C 600 100 650 200 650 400 C 650 700 600 900 550 900 L 450 900 C 400 900 350 700 350 500 C 350 300 400 100 450 100 Z";
+const AUSTRALIA_PATH = "M 300 300 L 700 300 L 750 350 L 750 650 L 700 700 L 300 700 L 250 650 L 250 350 L 300 300 M 350 500 C 350 550 450 550 450 500 C 450 450 350 450 350 500";
+const JAPAN_PATH = "M 200 600 C 200 400 400 400 500 500 L 600 600 C 700 700 800 600 800 400 C 800 200 600 200 500 300 L 400 400 C 300 500 200 500 200 600";
+const CHINA_PATH = "M 200 200 C 250 100 350 100 400 200 C 450 300 400 400 300 450 L 300 600 L 700 600 L 800 700 L 800 800 L 200 800 L 200 200";
+const MIAMI_PATH = "M 200 400 L 800 400 L 850 450 L 850 600 L 600 600 C 550 650 550 750 600 800 L 800 800 L 200 800 L 150 750 L 150 450 L 200 400";
+const IMOLA_PATH = "M 300 300 L 700 200 L 800 300 L 800 600 L 700 700 L 400 700 L 200 500 L 300 300";
+const MONACO_PATH = "M 400 200 L 600 200 L 650 250 L 650 400 L 400 500 L 300 450 L 300 300 L 400 200";
+const CANADA_PATH = "M 200 800 L 800 800 L 850 750 L 850 700 L 800 650 L 300 650 L 250 600 L 250 300 L 200 250 L 200 800";
+const SPAIN_PATH = "M 200 300 L 800 300 L 850 350 L 850 600 L 600 600 L 550 700 L 300 700 L 250 600 L 200 300";
+const AUSTRIA_PATH = "M 200 600 L 600 300 L 800 300 L 850 350 L 850 600 L 700 700 L 400 700 L 200 600";
+const SILVERSTONE_PATH = "M 400 800 L 600 800 L 700 700 L 800 500 L 700 300 L 500 200 L 300 300 L 200 500 L 300 700 L 400 800";
+const HUNGARY_PATH = "M 300 300 L 700 300 L 800 400 L 800 600 L 700 700 L 300 700 L 200 600 L 200 400 L 300 300";
+const SPA_PATH = "M 200 700 L 400 300 L 800 300 L 900 400 L 800 800 L 500 800 L 200 700";
+const ZANDVOORT_PATH = "M 300 300 C 500 200 700 200 800 300 C 900 500 800 700 700 800 L 300 800 C 200 700 200 500 300 300";
+const MONZA_PATH = "M 200 700 L 700 700 C 800 700 900 600 900 500 L 900 300 L 800 200 L 300 200 L 250 250 L 250 650 L 200 700";
+const BAKU_PATH = "M 200 800 L 800 800 L 800 400 L 600 400 L 550 500 L 450 500 L 400 400 L 200 400 L 200 800";
+const SINGAPORE_PATH = "M 200 300 L 800 300 L 800 700 L 600 700 L 600 500 L 400 500 L 400 700 L 200 700 L 200 300";
+const AUSTIN_PATH = "M 200 700 L 300 300 L 400 500 C 500 400 600 400 700 500 L 800 400 L 800 700 L 200 700";
+const MEXICO_PATH = "M 200 300 L 800 300 L 850 350 L 850 500 L 700 500 L 600 600 L 600 700 L 400 700 L 400 500 L 200 500 L 200 300";
+const BRAZIL_PATH = "M 300 300 C 200 400 200 500 300 600 L 700 600 L 800 500 L 800 400 L 700 300 L 300 300";
+const VEGAS_PATH = "M 200 300 L 800 300 L 800 600 C 700 700 600 700 500 600 L 200 600 L 200 300";
+const QATAR_PATH = "M 300 300 C 400 200 600 200 700 300 C 800 400 800 600 700 700 C 600 800 400 800 300 700 C 200 600 200 400 300 300";
+const ABUDHABI_PATH = "M 200 600 L 200 300 L 800 300 L 800 500 L 700 600 L 600 600 L 600 500 L 400 500 L 400 600 L 200 600";
+
+// Ordered for 2025 Calendar
 export const TRACKS: TrackData[] = [
-  {
-    id: 'bahrain',
-    name: { ko: '바레인 인터내셔널 서킷', en: 'Bahrain International Circuit' },
-    country: { ko: '바레인', en: 'Bahrain' },
-    description: { ko: '긴 직선과 급제동 구간, 그리고 바람이 변수인 사막의 트랙입니다.', en: 'Desert track with long straights and heavy braking zones.' },
-    characteristics: { downforce: 'Medium', tireWear: 'High', speed: 'Medium' },
-    baseLapTime: 91.4, 
-    idealSetup: { wingAngle: 28, stiffness: 6 },
-    sectors: ['Straight', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight'],
-  },
-  {
-    id: 'saudi',
-    name: { ko: '제다 코니쉬 서킷', en: 'Jeddah Corniche Circuit' },
-    country: { ko: '사우디아라비아', en: 'Saudi Arabia' },
-    description: { ko: '벽 사이를 질주하는 초고속 시가지 서킷으로 매우 위험합니다.', en: 'High-speed street circuit with walls very close to the track.' },
-    characteristics: { downforce: 'Low', tireWear: 'Medium', speed: 'High' },
-    baseLapTime: 88.2, 
-    idealSetup: { wingAngle: 15, stiffness: 7 },
-    sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner'],
-  },
   {
     id: 'australia',
     name: { ko: '앨버트 파크 서킷', en: 'Albert Park Circuit' },
@@ -327,16 +348,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 79.8, 
     idealSetup: { wingAngle: 32, stiffness: 5 },
     sectors: ['Straight', 'Chicane', 'Straight', 'Corner', 'Straight', 'Chicane', 'Straight', 'Corner'],
-  },
-  {
-    id: 'japan',
-    name: { ko: '스즈카 서킷', en: 'Suzuka Circuit' },
-    country: { ko: '일본', en: 'Japan' },
-    description: { ko: '차량의 전체적인 밸런스를 시험하는 테크니컬한 8자 형태의 트랙입니다.', en: 'Technical figure-8 track testing overall car balance.' },
-    characteristics: { downforce: 'High', tireWear: 'High', speed: 'Medium' },
-    baseLapTime: 93.7, 
-    idealSetup: { wingAngle: 42, stiffness: 6 },
-    sectors: ['Corner', 'Corner', 'Corner', 'Corner', 'Straight', 'Chicane', 'Corner', 'Straight'],
+    svgPath: AUSTRALIA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Albert Park.svg',
+    pathOffset: 0.0
   },
   {
     id: 'china',
@@ -347,6 +361,49 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 97.8, 
     idealSetup: { wingAngle: 25, stiffness: 5 },
     sectors: ['Corner', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner'],
+    svgPath: CHINA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Shanghai International.svg',
+    pathOffset: 0.0
+  },
+  {
+    id: 'japan',
+    name: { ko: '스즈카 서킷', en: 'Suzuka Circuit' },
+    country: { ko: '일본', en: 'Japan' },
+    description: { ko: '차량의 전체적인 밸런스를 시험하는 테크니컬한 8자 형태의 트랙입니다.', en: 'Technical figure-8 track testing overall car balance.' },
+    characteristics: { downforce: 'High', tireWear: 'High', speed: 'Medium' },
+    baseLapTime: 93.7, 
+    idealSetup: { wingAngle: 42, stiffness: 6 },
+    sectors: ['Corner', 'Corner', 'Corner', 'Corner', 'Straight', 'Chicane', 'Corner', 'Straight'],
+    svgPath: JAPAN_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Suzuka.svg',
+    pathOffset: 0.0
+  },
+  {
+    id: 'bahrain',
+    name: { ko: '바레인 인터내셔널 서킷', en: 'Bahrain International Circuit' },
+    country: { ko: '바레인', en: 'Bahrain' },
+    description: { ko: '긴 직선과 급제동 구간, 그리고 바람이 변수인 사막의 트랙입니다.', en: 'Desert track with long straights and heavy braking zones.' },
+    characteristics: { downforce: 'Medium', tireWear: 'High', speed: 'Medium' },
+    baseLapTime: 91.4, 
+    idealSetup: { wingAngle: 28, stiffness: 6 },
+    sectors: ['Straight', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight'],
+    svgPath: BAHRAIN_PATH,
+    viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Bahrain International.svg',
+    pathOffset: 0.0
+  },
+  {
+    id: 'saudi',
+    name: { ko: '제다 코니쉬 서킷', en: 'Jeddah Corniche Circuit' },
+    country: { ko: '사우디아라비아', en: 'Saudi Arabia' },
+    description: { ko: '벽 사이를 질주하는 초고속 시가지 서킷으로 매우 위험합니다.', en: 'High-speed street circuit with walls very close to the track.' },
+    characteristics: { downforce: 'Low', tireWear: 'Medium', speed: 'High' },
+    baseLapTime: 88.2, 
+    idealSetup: { wingAngle: 15, stiffness: 7 },
+    sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner'],
+    svgPath: SAUDI_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Jeddah Corniche.svg',
+    pathOffset: 0.0
   },
   {
     id: 'miami',
@@ -357,6 +414,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 89.4, 
     idealSetup: { wingAngle: 22, stiffness: 4 },
     sectors: ['Straight', 'Corner', 'Straight', 'Corner', 'Chicane', 'Straight', 'Corner', 'Straight'],
+    svgPath: MIAMI_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Miami International Autodrome.svg',
+    pathOffset: 0.0
   },
   {
     id: 'imola',
@@ -367,6 +427,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 75.9, 
     idealSetup: { wingAngle: 38, stiffness: 4 },
     sectors: ['Straight', 'Chicane', 'Corner', 'Straight', 'Chicane', 'Corner', 'Straight', 'Corner'],
+    svgPath: IMOLA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Imola.svg',
+    pathOffset: 0.0
   },
   {
     id: 'monaco',
@@ -377,16 +440,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 74.5, 
     idealSetup: { wingAngle: 50, stiffness: 2 },
     sectors: ['Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner', 'Chicane', 'Corner', 'Corner'],
-  },
-  {
-    id: 'canada',
-    name: { ko: '질 빌너브 서킷', en: 'Circuit Gilles Villeneuve' },
-    country: { ko: '캐나다', en: 'Canada' },
-    description: { ko: '가속과 감속이 반복되는 스톱-앤-고 스타일의 서킷입니다.', en: 'Stop-and-go style circuit with heavy braking and acceleration.' },
-    characteristics: { downforce: 'Low', tireWear: 'Medium', speed: 'High' },
-    baseLapTime: 73.8, 
-    idealSetup: { wingAngle: 18, stiffness: 3 },
-    sectors: ['Straight', 'Chicane', 'Straight', 'Chicane', 'Straight', 'Corner', 'Straight', 'Chicane'],
+    svgPath: MONACO_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Monaco.svg',
+    pathOffset: 0.0
   },
   {
     id: 'spain',
@@ -397,6 +453,22 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 76.5, 
     idealSetup: { wingAngle: 45, stiffness: 7 },
     sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight'],
+    svgPath: SPAIN_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Barcelona-Catalunya.svg',
+    pathOffset: 0.0
+  },
+  {
+    id: 'canada',
+    name: { ko: '질 빌너브 서킷', en: 'Circuit Gilles Villeneuve' },
+    country: { ko: '캐나다', en: 'Canada' },
+    description: { ko: '가속과 감속이 반복되는 스톱-앤-고 스타일의 서킷입니다.', en: 'Stop-and-go style circuit with heavy braking and acceleration.' },
+    characteristics: { downforce: 'Low', tireWear: 'Medium', speed: 'High' },
+    baseLapTime: 73.8, 
+    idealSetup: { wingAngle: 18, stiffness: 3 },
+    sectors: ['Straight', 'Chicane', 'Straight', 'Chicane', 'Straight', 'Corner', 'Straight', 'Chicane'],
+    svgPath: CANADA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Gilles Villeneuve.svg',
+    pathOffset: 0.0
   },
   {
     id: 'austria',
@@ -407,6 +479,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 67.8, 
     idealSetup: { wingAngle: 26, stiffness: 6 },
     sectors: ['Straight', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight'],
+    svgPath: AUSTRIA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Red Bull Ring.svg',
+    pathOffset: 0.0
   },
   {
     id: 'silverstone',
@@ -417,16 +492,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 88.5, 
     idealSetup: { wingAngle: 36, stiffness: 7 },
     sectors: ['Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner', 'Corner'],
-  },
-  {
-    id: 'hungary',
-    name: { ko: '헝가로링', en: 'Hungaroring' },
-    country: { ko: '헝가리', en: 'Hungary' },
-    description: { ko: '벽 없는 모나코라 불리며, 좁고 구불구불하여 추월이 어렵습니다.', en: 'Called "Monaco without walls", twisty and hard to overtake.' },
-    characteristics: { downforce: 'High', tireWear: 'Medium', speed: 'Low' },
-    baseLapTime: 78.3, 
-    idealSetup: { wingAngle: 48, stiffness: 4 },
-    sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Chicane', 'Corner', 'Corner', 'Straight'],
+    svgPath: SILVERSTONE_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Silverstone.svg',
+    pathOffset: 0.0
   },
   {
     id: 'belgium',
@@ -437,6 +505,22 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 106.2, 
     idealSetup: { wingAngle: 20, stiffness: 6 },
     sectors: ['Straight', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Chicane'],
+    svgPath: SPA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Spa-Francorchamps.svg',
+    pathOffset: 0.0
+  },
+  {
+    id: 'hungary',
+    name: { ko: '헝가로링', en: 'Hungaroring' },
+    country: { ko: '헝가리', en: 'Hungary' },
+    description: { ko: '벽 없는 모나코라 불리며, 좁고 구불구불하여 추월이 어렵습니다.', en: 'Called "Monaco without walls", twisty and hard to overtake.' },
+    characteristics: { downforce: 'High', tireWear: 'Medium', speed: 'Low' },
+    baseLapTime: 78.3, 
+    idealSetup: { wingAngle: 48, stiffness: 4 },
+    sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Chicane', 'Corner', 'Corner', 'Straight'],
+    svgPath: HUNGARY_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Hungaroring.svg',
+    pathOffset: 0.0
   },
   {
     id: 'netherlands',
@@ -447,6 +531,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 72.8, 
     idealSetup: { wingAngle: 44, stiffness: 5 },
     sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner'],
+    svgPath: ZANDVOORT_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Zandvoort.svg',
+    pathOffset: 0.0
   },
   {
     id: 'monza',
@@ -457,6 +544,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 82.5, 
     idealSetup: { wingAngle: 5, stiffness: 8 },
     sectors: ['Straight', 'Chicane', 'Straight', 'Corner', 'Straight', 'Corner', 'Straight', 'Corner', 'Straight'],
+    svgPath: MONZA_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Monza.svg',
+    pathOffset: 0.0
   },
   {
     id: 'baku',
@@ -467,6 +557,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 103.5, 
     idealSetup: { wingAngle: 12, stiffness: 3 },
     sectors: ['Corner', 'Corner', 'Corner', 'Straight', 'Chicane', 'Corner', 'Straight', 'Straight'],
+    svgPath: BAKU_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Baku.svg',
+    pathOffset: 0.45 
   },
   {
     id: 'singapore',
@@ -477,6 +570,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 96.5, 
     idealSetup: { wingAngle: 50, stiffness: 3 },
     sectors: ['Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner'],
+    svgPath: SINGAPORE_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Singapore.svg',
+    pathOffset: 0.0
   },
   {
     id: 'austin',
@@ -487,6 +583,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 97.2, 
     idealSetup: { wingAngle: 38, stiffness: 6 },
     sectors: ['Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner', 'Corner', 'Straight'],
+    svgPath: AUSTIN_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Circuit of the Americas.svg',
+    pathOffset: 0.0
   },
   {
     id: 'mexico',
@@ -497,6 +596,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 79.5, 
     idealSetup: { wingAngle: 48, stiffness: 5 },
     sectors: ['Straight', 'Chicane', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner'],
+    svgPath: MEXICO_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Autodromo Hermanos Rodriguez.svg',
+    pathOffset: 0.0
   },
   {
     id: 'brazil',
@@ -507,6 +609,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 72.1, 
     idealSetup: { wingAngle: 32, stiffness: 5 },
     sectors: ['Straight', 'Chicane', 'Straight', 'Corner', 'Corner', 'Straight', 'Corner', 'Straight'],
+    svgPath: BRAZIL_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Interlagos.svg',
+    pathOffset: 0.0
   },
   {
     id: 'vegas',
@@ -517,6 +622,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 94.2, 
     idealSetup: { wingAngle: 10, stiffness: 4 },
     sectors: ['Straight', 'Corner', 'Straight', 'Straight', 'Corner', 'Straight', 'Corner', 'Straight'],
+    svgPath: VEGAS_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Las Vegas Strip.svg',
+    pathOffset: 0.0
   },
   {
     id: 'qatar',
@@ -527,6 +635,9 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 84.8, 
     idealSetup: { wingAngle: 35, stiffness: 7 },
     sectors: ['Straight', 'Corner', 'Corner', 'Corner', 'Straight', 'Corner', 'Corner', 'Straight'],
+    svgPath: QATAR_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Lusail International Circuit.svg',
+    pathOffset: 0.0
   },
   {
     id: 'abudhabi',
@@ -537,5 +648,8 @@ export const TRACKS: TrackData[] = [
     baseLapTime: 85.6, 
     idealSetup: { wingAngle: 28, stiffness: 5 },
     sectors: ['Straight', 'Corner', 'Straight', 'Chicane', 'Corner', 'Straight', 'Corner', 'Corner'],
+    svgPath: ABUDHABI_PATH, viewBox: "0 0 1000 1000",
+    mapUrl: './images/circuit/Yas Marina Circuit.svg',
+    pathOffset: 0.0
   },
 ];

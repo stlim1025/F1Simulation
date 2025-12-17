@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver, Language } from './types';
 import { DEFAULT_SETUP, TRACKS, TRANSLATIONS } from './constants';
@@ -6,8 +7,10 @@ import TrackSelector from './components/TrackSelector';
 import TeamDriverSelector from './components/TeamDriverSelector';
 import TelemetryCharts from './components/TelemetryCharts';
 import LapHistoryChart from './components/LapHistoryChart';
+import TrackMap from './components/TrackMap';
+import CarVisualizer from './components/CarVisualizer';
 import { getRaceEngineerFeedback } from './services/geminiService';
-import { Play, RotateCcw, Cpu, Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, ChevronRight, Users, Globe } from 'lucide-react';
+import { Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, Cpu, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
   const [setup, setSetup] = useState<CarSetup>(DEFAULT_SETUP);
@@ -66,39 +69,27 @@ const App: React.FC = () => {
     const driverConsistency = selectedDriver ? selectedDriver.consistency : 0.85;
 
     // PHYSICS UPDATE V3.1
-    // Goal: Make Setup dominate. Reduce Team/Driver spread.
-
-    // 1. Aerodynamics (Wings 0-50)
     const avgWing = (setup.frontWing + setup.rearWing) / 2;
-    // Drag affects straights.
     const dragFactor = (avgWing / 50) * 0.15; // Max 15% speed penalty
-    // Downforce affects corners.
     const downforceFactor = (avgWing / 50) * 0.25; // Max 25% corner grip
 
-    // Setup Penalty: Wing Angle vs Track Ideal
-    // Doubled the penalty multiplier (0.05 -> 0.1)
     const trackIdealWing = selectedTrack.idealSetup.wingAngle;
     const wingDelta = Math.abs(avgWing - trackIdealWing);
-    const timePenaltyAero = wingDelta * 0.1; // 10 clicks off = 1.0s penalty
+    const timePenaltyAero = wingDelta * 0.1;
 
-    // 2. Suspension & Balance
     const idealSuspensionVal = selectedTrack.idealSetup.stiffness * 4; 
     const avgSuspension = (setup.frontSuspension + setup.rearSuspension) / 2;
     const suspDelta = Math.abs(avgSuspension - idealSuspensionVal);
-    // Increased penalty multiplier (0.02 -> 0.04)
     const timePenaltySusp = suspDelta * 0.04;
 
     const balanceBias = setup.frontSuspension - setup.rearSuspension; 
-    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.4 : 0; // Penalty doubled
+    const balancePenalty = Math.abs(balanceBias) > 10 ? 0.4 : 0;
 
-    // 3. Differential
     const diffPenalty = (Math.abs(setup.onThrottleDiff - 75) * 0.01) + (Math.abs(setup.offThrottleDiff - 60) * 0.01);
 
-    // 4. Brakes
     const brakeGain = (setup.brakePressure - 80) * 0.01; 
     const lockupRisk = (setup.brakePressure > 95) ? Math.random() * 0.3 * (1.1 - driverConsistency) : 0; 
 
-    // 5. Tires & Pressures
     let tireGrip = 1.0;
     let tireWearRate = 1.0;
     
@@ -109,18 +100,11 @@ const App: React.FC = () => {
         case TireCompound.WET: tireGrip = 0.8; tireWearRate = 1.5; break; 
     }
 
-    // Increased pressure penalty
     const pressurePenalty = (Math.abs(setup.frontTirePressure - 23) + Math.abs(setup.rearTirePressure - 21)) * 0.1;
 
-    // --- TOTAL LAP TIME CALCULATION ---
+    // --- TOTAL LAP TIME CALCULATION (Game Logic) ---
     let finalLapTime = selectedTrack.baseLapTime;
-    
-    // Apply Team Performance Factor
-    // Factor is now very compressed (0.995 ~ 1.005). 
-    // On 90s lap, range is 89.55s ~ 90.45s (0.9s diff).
     finalLapTime = finalLapTime * teamFactor;
-
-    // Add penalties & Subtract gains
     finalLapTime += timePenaltyAero;
     finalLapTime += timePenaltySusp;
     finalLapTime += balancePenalty;
@@ -128,29 +112,28 @@ const App: React.FC = () => {
     finalLapTime += pressurePenalty;
     finalLapTime += lockupRisk;
     finalLapTime -= brakeGain;
-    finalLapTime -= (tireGrip * 0.5); // Grip bonus
+    finalLapTime -= (tireGrip * 0.5); 
     
-    // Apply Driver Skill - MASSIVELY REDUCED
-    // Old: 0.2 factor. New: 0.05 factor.
-    // Skill 1.0 removes 0.05s. Skill 0.8 removes 0.04s. Diff is negligible (0.01s).
     const skillBonus = driverSkill * 0.05;
     finalLapTime -= skillBonus;
 
-    // Add randomness (Driver inconsistency)
     const variance = (1.0 - driverConsistency) * 0.15;
     finalLapTime += (Math.random() - 0.5) * variance;
 
     // --- TELEMETRY GENERATION ---
+    // We calculate a "Raw Telemetry Time" and then scale it to match the "Game Logic Lap Time"
     const telemetry: TelemetryPoint[] = [];
     let currentDistance = 0;
+    let cumulativeTimeRaw = 0;
     const totalDistance = 5000; 
     
     selectedTrack.sectors.forEach((sector) => {
         const sectorLength = totalDistance / selectedTrack.sectors.length;
         const steps = 20; 
-        
+        const stepDist = sectorLength / steps;
+
         for (let i = 0; i < steps; i++) {
-            currentDistance += sectorLength / steps;
+            currentDistance += stepDist;
             let speed = 0;
             let throttle = 0;
             let brake = 0;
@@ -159,8 +142,7 @@ const App: React.FC = () => {
 
             if (sector === 'Straight') {
                 const progress = i / steps;
-                // Team factor affects top speed slightly (better engine/aero)
-                const teamSpeedBonus = (1.0 - teamFactor) * 100; // e.g. 0.02 * 100 = +2km/h
+                const teamSpeedBonus = (1.0 - teamFactor) * 100; 
                 const maxSpeed = 350 - (dragFactor * 200) + teamSpeedBonus; 
                 speed = 100 + (maxSpeed - 100) * Math.sqrt(progress); 
                 throttle = 100;
@@ -181,8 +163,17 @@ const App: React.FC = () => {
             
             rpm = (speed / 40) * 1000 + 4000 + (Math.random() * 500);
             if (rpm > 12500) rpm = 12500;
+            
+            // Calculate time for this step (Distance / Speed)
+            // Speed is km/h, distance is meters. 
+            // m/s = speed / 3.6
+            // time = dist / (speed/3.6)
+            const speedMS = Math.max(10, speed) / 3.6; 
+            const stepTime = stepDist / speedMS;
+            cumulativeTimeRaw += stepTime;
 
             telemetry.push({
+                time: cumulativeTimeRaw, // Raw time, will be scaled later
                 distance: Math.round(currentDistance),
                 speed: Math.round(speed),
                 throttle,
@@ -192,6 +183,13 @@ const App: React.FC = () => {
             });
         }
     });
+
+    // Scale telemetry timestamps to match the final calculated lap time exactly
+    const timeScaleFactor = finalLapTime / cumulativeTimeRaw;
+    const scaledTelemetry = telemetry.map(p => ({
+        ...p,
+        time: p.time * timeScaleFactor
+    }));
 
     const runId = history.length + 1;
     const finalTireWear = tireWearRate * 5 + (setup.onThrottleDiff * 0.02) + (Math.abs(setup.frontTirePressure - 23) * 0.5);
@@ -203,7 +201,7 @@ const App: React.FC = () => {
         sector1: finalLapTime * 0.3,
         sector2: finalLapTime * 0.4,
         sector3: finalLapTime * 0.3,
-        telemetry,
+        telemetry: scaledTelemetry,
         tireWear: finalTireWear,
         setupSnapshot: { ...setup },
         driver: selectedDriver || undefined,
@@ -280,10 +278,12 @@ const App: React.FC = () => {
             lang={lang}
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-4 lg:h-[calc(100vh-200px)] lg:sticky lg:top-24 h-auto relative">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Column: Setup Panel (Sticky) */}
+            <div className="lg:col-span-4 lg:sticky lg:top-24 h-auto lg:h-[calc(100vh-120px)]">
                 <CarSetupPanel 
                     setup={setup} 
+                    track={selectedTrack}
                     onChange={setSetup} 
                     onRun={runSimulation}
                     isSimulating={isSimulating}
@@ -291,10 +291,33 @@ const App: React.FC = () => {
                 />
             </div>
 
-            <div className="lg:col-span-8">
+            {/* Right Column: Visualizer + Results & Map */}
+            <div className="lg:col-span-8 space-y-8">
+                {/* Visualizer and Analysis Dashboard */}
+                <div className="animate-fade-in">
+                    <CarVisualizer 
+                        setup={setup} 
+                        track={selectedTrack} 
+                        lang={lang} 
+                        teamColor={selectedTeam?.color}
+                    />
+                </div>
+
+                {/* Visual Track Replay Map */}
+                {history.length > 0 && simResult && (
+                    <div className="animate-fade-in">
+                        <TrackMap 
+                            track={selectedTrack} 
+                            team={selectedTeam} 
+                            result={simResult}
+                            lang={lang}
+                        />
+                    </div>
+                )}
+
                 {history.length === 0 ? (
-                    <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
-                        <Trophy className="text-slate-700 mb-4" size={64} />
+                    <div className="h-64 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
+                        <Trophy className="text-slate-700 mb-4" size={48} />
                         <p className="text-slate-500 text-lg text-center px-4">
                             {!selectedDriver ? t.selectPrompt : t.ready}
                         </p>
@@ -388,7 +411,7 @@ const App: React.FC = () => {
 };
 
 const StatBox = ({ label, value, subValue, subColor = "text-slate-500", unit, icon: Icon }: any) => (
-    <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg relative overflow-hidden">
+    <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg relative overflow-hidden">
         <div className="absolute top-0 right-0 p-2 opacity-5"><Icon size={32}/></div>
         <div className="text-slate-500 text-[10px] uppercase mb-1">{label}</div>
         <div className="text-xl font-mono text-white font-bold flex items-baseline gap-1">

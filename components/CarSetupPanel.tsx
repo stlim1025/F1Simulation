@@ -1,22 +1,22 @@
+
 import React from 'react';
-import { CarSetup, TireCompound, Language } from '../types';
+import { CarSetup, TireCompound, Language, TrackData } from '../types';
 import { Wind, Activity, Disc, Zap, Play, RotateCcw, Settings, Gauge, ArrowUpDown, Info } from 'lucide-react';
 import { SETUP_DESCRIPTIONS, TRANSLATIONS, TIRE_COMPOUNDS_LABELS } from '../constants';
 
 interface Props {
   setup: CarSetup;
+  track: TrackData;
   onChange: (newSetup: CarSetup) => void;
   onRun: () => void;
   isSimulating: boolean;
   lang: Language;
 }
 
-const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, lang }) => {
+const CarSetupPanel: React.FC<Props> = ({ setup, track, onChange, onRun, isSimulating, lang }) => {
   const t = TRANSLATIONS[lang];
 
-  // Helper to safely get the translated label using type assertion or checking existence
-  // Since we added these keys to TRANSLATIONS in constants.ts, we can access them.
-  // Ideally, we would update the Translation type, but for now we cast to any or just access.
+  // Helper to safely get the translated label
   const getLabel = (key: string) => {
       return (t as any)[key] || key;
   }
@@ -40,13 +40,10 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
       } catch (err) {
         // ignore if not supported
       }
-      // initialize local drag value from current input or computed position
       const startVal = computeValueFromClientX ? computeValueFromClientX(e.clientX) : Number(e.currentTarget.value);
       dragValueRef.current = startVal === null ? Number(e.currentTarget.value) : startVal;
-      // update DOM immediately to avoid React re-render during drag
       if (inputRef.current) inputRef.current.value = String(dragValueRef.current);
       if (displayRef.current) displayRef.current.textContent = `${dragValueRef.current} ${unit}`;
-      // add global listeners so releasing outside the input is handled
       window.addEventListener('pointermove', globalPointerMove);
       window.addEventListener('pointerup', globalPointerUp);
     };
@@ -54,15 +51,12 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
     const handlePointerUp = (e?: React.PointerEvent<HTMLInputElement> | PointerEvent) => {
       setIsPointerDown(false);
       activePointerId.current = null;
-      // remove global listeners
       window.removeEventListener('pointermove', globalPointerMove);
       window.removeEventListener('pointerup', globalPointerUp);
-      // commit local drag value to parent if present
       if (dragValueRef.current !== null) {
         handleChange(prop as keyof CarSetup, dragValueRef.current);
       }
       dragValueRef.current = null;
-      // If this is a React pointer event, try to release capture from the element
       try {
         if (e && (e as React.PointerEvent<HTMLInputElement>).currentTarget) {
           const ev = e as React.PointerEvent<HTMLInputElement>;
@@ -130,7 +124,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
       if (isPointerDown) {
-        // update local drag value and DOM display only while dragging
         dragValueRef.current = val;
         if (displayRef.current) displayRef.current.textContent = `${val} ${unit}`;
         return;
@@ -156,7 +149,6 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
               <div className="ml-1">
                   <Info size={12} className="text-slate-500 hover:text-slate-300 transition-colors" />
               </div>
-              {/* Tooltip */}
               <div className="absolute left-0 bottom-full mb-2 w-48 sm:w-56 p-2 bg-slate-950 border border-slate-700 text-slate-200 text-[10px] rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                   {SETUP_DESCRIPTIONS[prop as keyof CarSetup][lang]}
                   <div className="absolute bottom-[-4px] left-4 w-2 h-2 bg-slate-950 border-r border-b border-slate-700 transform rotate-45"></div>
@@ -184,14 +176,15 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg flex flex-col lg:h-full h-auto">
-      <div className="p-4 border-b border-slate-700 bg-slate-800/50 rounded-t-xl sticky top-0 z-10 backdrop-blur-md">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg flex flex-col h-full">
+      <div className="p-4 border-b border-slate-700 bg-slate-800/50 rounded-t-xl sticky top-0 z-10 backdrop-blur-md flex-none">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Zap className="text-yellow-500" size={20} /> {t.garage}
           </h2>
       </div>
 
-      <div className="p-4 space-y-6 flex-grow lg:overflow-y-auto overflow-visible scrollbar-thin scrollbar-thumb-slate-700">
+      <div className="p-4 space-y-6 flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900 min-h-0">
+        
         {/* Aerodynamics */}
         <section>
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3 border-b border-slate-800 pb-1 flex items-center gap-1">
@@ -203,7 +196,7 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
           </div>
         </section>
 
-        {/* Differential (previously Transmission) */}
+        {/* Differential */}
         <section>
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3 border-b border-slate-800 pb-1 flex items-center gap-1">
              <Settings size={12}/> {t.trans}
@@ -217,6 +210,7 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3 border-b border-slate-800 pb-1 flex items-center gap-1">
                 <Activity size={12}/> {t.susp}
             </h3>
+            
             <div className="grid grid-cols-2 gap-4">
                 <SliderControl labelKey="fSusp" prop="frontSuspension" min={1} max={41} unit="" icon={ArrowUpDown} />
                 <SliderControl labelKey="rSusp" prop="rearSuspension" min={1} max={41} unit="" icon={ArrowUpDown} />
@@ -273,7 +267,7 @@ const CarSetupPanel: React.FC<Props> = ({ setup, onChange, onRun, isSimulating, 
         </section>
       </div>
 
-      <div className="p-4 border-t border-slate-700 bg-slate-800/30 rounded-b-xl">
+      <div className="p-4 border-t border-slate-700 bg-slate-800/30 rounded-b-xl flex-none">
         <button
             onClick={onRun}
             disabled={isSimulating}
