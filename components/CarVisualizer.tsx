@@ -1,8 +1,8 @@
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CarSetup, Language, TrackData } from '../types';
 import { TIRE_COMPOUNDS_COLORS } from '../constants';
-import { GitCompare, Wind, ArrowDownToLine, Zap } from 'lucide-react';
+import { GitCompare, Wind, ArrowDownToLine, Zap, ZoomIn, RotateCcw } from 'lucide-react';
 
 interface Props {
   setup: CarSetup;
@@ -25,6 +25,34 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, teamColor }) => {
   const tireColor = TIRE_COMPOUNDS_COLORS[setup.tireCompound] || '#eab308';
   const primaryColor = teamColor || '#334155';
 
+  // --- ZOOM STATE ---
+  const [zoom, setZoom] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const handleWheel = (e: WheelEvent) => {
+          e.preventDefault(); // Stop page scrolling
+          
+          const delta = -Math.sign(e.deltaY) * 0.1;
+          setZoom(prev => {
+              const newZoom = prev + delta;
+              return Math.min(Math.max(newZoom, 0.5), 3.0); // Clamp between 0.5x and 3.0x
+          });
+      };
+
+      // Add non-passive event listener to allow preventDefault
+      container.addEventListener('wheel', handleWheel, { passive: false });
+
+      return () => {
+          container.removeEventListener('wheel', handleWheel);
+      };
+  }, []);
+
+  const resetZoom = () => setZoom(1);
+
   // --- ANALYSIS LOGIC V3.2 (Advanced Aero) ---
 
   // 1. Suspension Balance
@@ -42,26 +70,19 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, teamColor }) => {
   const wingTotal = setup.frontWing + setup.rearWing; // Max 100
   
   // B. Ground Effect Contribution (Inverse to Ride Height)
-  // Lower ride height (20mm) -> More Downforce. Higher (50mm) -> Less.
-  // We calculate average height relative to max (50). 
-  // 20mm avg -> (50-20) = 30 pts. 50mm avg -> 0 pts.
   const avgRideHeight = (setup.frontRideHeight + setup.rearRideHeight) / 2;
   const groundEffectScore = (50 - avgRideHeight) * 1.5; // Max ~45 pts
 
   // C. Suspension Stability Bonus
-  // Stiffer suspension maintains aero platform better. Max 10% bonus.
   const stiffnessFactor = 1 + (totalStiffness / 100) * 0.1;
 
   // Total Downforce Calculation (Weighted)
-  // Weighting: Wings ~70%, Ground Effect ~30%
-  // Formula approx: (WingTotal * 0.7) + GroundEffect
   let rawDownforce = (wingTotal * 0.7) + groundEffectScore;
   rawDownforce *= stiffnessFactor;
   
   const downforcePercentage = Math.min(Math.max(rawDownforce, 0), 100);
 
   // Track Ideal Downforce (Approximation for UI comparison)
-  // We convert the track's ideal wing angle into a "Total Aero Score" using default heights
   const idealWingTotal = track.idealSetup.wingAngle * 2;
   const idealGroundEffect = (50 - 30) * 1.5; // Assuming 30mm is standard ideal height
   const idealDownforceScore = (idealWingTotal * 0.7) + idealGroundEffect;
@@ -75,14 +96,9 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, teamColor }) => {
   const wingDrag = wingTotal; 
 
   // B. Rake Drag
-  // Positive Rake (Rear > Front) increases frontal area slightly
   const rakeDrag = Math.max(0, setup.rearRideHeight - setup.frontRideHeight) * 1.5;
 
   let rawDrag = (wingDrag * 0.85) + rakeDrag;
-  
-  // Lower ride height slightly reduces drag (less tire exposed, less underbody air), 
-  // but we simplify to focus on wings/rake.
-  
   const dragPercentage = Math.min(Math.max(rawDrag, 0), 100);
 
 
@@ -123,158 +139,184 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, teamColor }) => {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg overflow-hidden">
-        {/* Car Preview */}
-        <div className="w-full h-48 bg-slate-950 relative overflow-hidden flex items-center justify-center p-2">
-            {/* Tech Background */}
-            <div className="absolute inset-0" 
-                style={{ 
-                    backgroundImage: 'linear-gradient(rgba(30, 41, 59, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30, 41, 59, 0.5) 1px, transparent 1px)', 
-                    backgroundSize: '40px 40px' 
-                }}>
+        {/* Car Preview with Zoom */}
+        <div 
+            ref={containerRef}
+            className="w-full h-48 bg-slate-950 relative overflow-hidden flex items-center justify-center p-2 group cursor-zoom-in"
+        >
+            {/* Zoomable Container */}
+            <div 
+                className="w-full h-full relative flex items-center justify-center transition-transform duration-100 ease-out"
+                style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
+            >
+                {/* Tech Background */}
+                <div className="absolute inset-[-50%] w-[200%] h-[200%]" 
+                    style={{ 
+                        backgroundImage: 'linear-gradient(rgba(30, 41, 59, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(30, 41, 59, 0.5) 1px, transparent 1px)', 
+                        backgroundSize: '40px 40px' 
+                    }}>
+                </div>
+                
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-transparent via-transparent to-slate-900/50 pointer-events-none"></div>
+
+                <svg viewBox="0 0 600 220" className="w-full h-full filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.7)] z-10 pointer-events-none">
+                    <defs>
+                        <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#0f172a" />
+                            <stop offset="30%" stopColor="#334155" /> 
+                            <stop offset="50%" stopColor="#475569" />
+                            <stop offset="100%" stopColor="#0f172a" />
+                        </linearGradient>
+                        <radialGradient id="tireGradient">
+                            <stop offset="70%" stopColor="#1a1a1a" />
+                            <stop offset="95%" stopColor="#0a0a0a" />
+                            <stop offset="100%" stopColor="#000" />
+                        </radialGradient>
+                        <linearGradient id="wingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#333" />
+                            <stop offset="100%" stopColor="#111" />
+                        </linearGradient>
+                    </defs>
+
+                    {/* Ground Reflection Shadow */}
+                    <ellipse cx="300" cy="180" rx="220" ry="10" fill="black" opacity="0.4" filter="blur(5px)"/>
+
+                    {/* Rear Wheel (Far side) */}
+                    <g transform="translate(130, 145)">
+                        <circle cx="0" cy="0" r="34" fill="#111" />
+                    </g>
+                    {/* Front Wheel (Far side) */}
+                    <g transform="translate(470, 145)">
+                        <circle cx="0" cy="0" r="31" fill="#111" />
+                    </g>
+
+                    {/* CAR BODY GROUP - Rotates with Rake */}
+                    <g transform={`translate(0, ${(frontHeightOffset + rearHeightOffset)/2}) rotate(${rakeAngle}, 300, 145)`}>
+                        
+                        {/* Floor / Plank */}
+                        <path d="M 140 150 L 460 150 L 450 145 L 150 145 Z" fill="#111" />
+
+                        {/* Main Monocoque & Sidepods */}
+                        <path d="
+                            M 510 135 
+                            L 470 120 
+                            Q 420 115 350 115
+                            L 250 110 
+                            Q 180 105 150 90 
+                            L 120 130 
+                            L 120 145 
+                            L 480 145 
+                            L 500 140 Z" 
+                            fill={primaryColor} 
+                            stroke="#ffffff33" 
+                            strokeWidth="0.5"
+                        />
+
+                        {/* Engine Cover / Shark Fin */}
+                        <path d="
+                            M 250 110
+                            Q 220 50 180 50
+                            L 140 50
+                            L 130 90
+                            L 150 90
+                            Z" 
+                            fill={primaryColor} 
+                            filter="brightness(0.8)"
+                        />
+                        
+                        {/* Halo */}
+                        <path d="
+                            M 280 100
+                            L 320 100
+                            Q 330 100 340 110
+                            L 270 110
+                            Z"
+                            fill="#111"
+                            stroke="#555"
+                            strokeWidth="1"
+                        />
+                        <line x1="320" y1="100" x2="320" y2="115" stroke="#111" strokeWidth="3" />
+
+                        {/* Driver Helmet */}
+                        <circle cx="290" cy="95" r="7" fill="#facc15" stroke="#000" strokeWidth="1" />
+
+                        {/* Rear Wing Structure */}
+                        <g transform="translate(90, 80)">
+                            {/* Endplate */}
+                            <path d="M 0 -10 L 40 -10 L 50 60 L 10 60 Z" fill={primaryColor} opacity="0.9" />
+                            {/* Main Plane */}
+                            <path d="M 5 0 L 45 0 L 45 10 L 5 10 Z" fill="url(#wingGradient)" />
+                            {/* DRS Flap (Rotates slightly based on setup, though usually binary) */}
+                            <rect x="5" y="-12" width="40" height="10" rx="1" fill="#333" stroke="#555" strokeWidth="0.5" 
+                                  transform={`rotate(${-setup.rearWing * 0.3} 25 0)`} />
+                        </g>
+
+                        {/* Front Wing Structure - Rotates with Setup */}
+                        <g transform={`translate(510, 140) rotate(${frontWingAngle})`}>
+                            {/* Endplate */}
+                            <path d="M 0 -5 L 10 -5 L 10 10 L 0 10 Z" fill={primaryColor} />
+                            {/* Main Planes */}
+                            <path d="M -10 5 L 30 5 L 40 8 L -10 8 Z" fill="url(#wingGradient)" />
+                            <path d="M -5 0 L 25 0 L 35 3 L -5 3 Z" fill="#333" />
+                        </g>
+                    </g>
+
+                    {/* Wheels (Near side) - Static position relative to ground, color changes */}
+                    <g transform="translate(0, 0)">
+                        {/* Rear Wheel */}
+                        <g transform="translate(130, 145)">
+                            <circle cx="0" cy="0" r="34" fill="url(#tireGradient)" />
+                            {/* Tire Compound Stripe */}
+                            <circle cx="0" cy="0" r="24" fill="none" stroke={tireColor} strokeWidth="3" opacity="0.9" />
+                            {/* Rim */}
+                            <circle cx="0" cy="0" r="14" fill="#222" stroke="#444" strokeWidth="1" />
+                            <path d="M-14 0 L14 0 M0 -14 L0 14" stroke="#333" strokeWidth="1" />
+                            <circle cx="0" cy="0" r="4" fill="#000" /> {/* Wheel nut */}
+                        </g>
+
+                        {/* Front Wheel */}
+                        <g transform="translate(470, 145)">
+                            <circle cx="0" cy="0" r="31" fill="url(#tireGradient)" />
+                            {/* Tire Compound Stripe */}
+                            <circle cx="0" cy="0" r="21" fill="none" stroke={tireColor} strokeWidth="3" opacity="0.9" />
+                            {/* Rim */}
+                            <circle cx="0" cy="0" r="13" fill="#222" stroke="#444" strokeWidth="1" />
+                            <path d="M-13 0 L13 0 M0 -13 L0 13" stroke="#333" strokeWidth="1" />
+                            <circle cx="0" cy="0" r="3" fill="#000" />
+                        </g>
+                    </g>
+
+                    {/* Ground Line */}
+                    <line x1="0" y1="179" x2="600" y2="179" stroke="#475569" strokeWidth="2" strokeDasharray="5,5" opacity="0.3" />
+                </svg>
             </div>
             
-            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-transparent via-transparent to-slate-900/50"></div>
-
-            <svg viewBox="0 0 600 220" className="w-full h-full filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.7)] z-10">
-                <defs>
-                    <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#0f172a" />
-                        <stop offset="30%" stopColor="#334155" /> 
-                        <stop offset="50%" stopColor="#475569" />
-                        <stop offset="100%" stopColor="#0f172a" />
-                    </linearGradient>
-                    <radialGradient id="tireGradient">
-                        <stop offset="70%" stopColor="#1a1a1a" />
-                        <stop offset="95%" stopColor="#0a0a0a" />
-                        <stop offset="100%" stopColor="#000" />
-                    </radialGradient>
-                    <linearGradient id="wingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#333" />
-                        <stop offset="100%" stopColor="#111" />
-                    </linearGradient>
-                </defs>
-
-                {/* Ground Reflection Shadow */}
-                <ellipse cx="300" cy="180" rx="220" ry="10" fill="black" opacity="0.4" filter="blur(5px)"/>
-
-                {/* Rear Wheel (Far side) */}
-                <g transform="translate(130, 145)">
-                    <circle cx="0" cy="0" r="34" fill="#111" />
-                </g>
-                {/* Front Wheel (Far side) */}
-                <g transform="translate(470, 145)">
-                    <circle cx="0" cy="0" r="31" fill="#111" />
-                </g>
-
-                {/* CAR BODY GROUP - Rotates with Rake */}
-                <g transform={`translate(0, ${(frontHeightOffset + rearHeightOffset)/2}) rotate(${rakeAngle}, 300, 145)`}>
-                    
-                    {/* Floor / Plank */}
-                    <path d="M 140 150 L 460 150 L 450 145 L 150 145 Z" fill="#111" />
-
-                    {/* Main Monocoque & Sidepods */}
-                    <path d="
-                        M 510 135 
-                        L 470 120 
-                        Q 420 115 350 115
-                        L 250 110 
-                        Q 180 105 150 90 
-                        L 120 130 
-                        L 120 145 
-                        L 480 145 
-                        L 500 140 Z" 
-                        fill={primaryColor} 
-                        stroke="#ffffff33" 
-                        strokeWidth="0.5"
-                    />
-
-                    {/* Engine Cover / Shark Fin */}
-                    <path d="
-                        M 250 110
-                        Q 220 50 180 50
-                        L 140 50
-                        L 130 90
-                        L 150 90
-                        Z" 
-                        fill={primaryColor} 
-                        filter="brightness(0.8)"
-                    />
-                    
-                    {/* Halo */}
-                    <path d="
-                        M 280 100
-                        L 320 100
-                        Q 330 100 340 110
-                        L 270 110
-                        Z"
-                        fill="#111"
-                        stroke="#555"
-                        strokeWidth="1"
-                    />
-                    <line x1="320" y1="100" x2="320" y2="115" stroke="#111" strokeWidth="3" />
-
-                    {/* Driver Helmet */}
-                    <circle cx="290" cy="95" r="7" fill="#facc15" stroke="#000" strokeWidth="1" />
-
-                    {/* Rear Wing Structure */}
-                    <g transform="translate(90, 80)">
-                        {/* Endplate */}
-                        <path d="M 0 -10 L 40 -10 L 50 60 L 10 60 Z" fill={primaryColor} opacity="0.9" />
-                        {/* Main Plane */}
-                        <path d="M 5 0 L 45 0 L 45 10 L 5 10 Z" fill="url(#wingGradient)" />
-                        {/* DRS Flap (Rotates slightly based on setup, though usually binary) */}
-                        <rect x="5" y="-12" width="40" height="10" rx="1" fill="#333" stroke="#555" strokeWidth="0.5" 
-                              transform={`rotate(${-setup.rearWing * 0.3} 25 0)`} />
-                    </g>
-
-                    {/* Front Wing Structure - Rotates with Setup */}
-                    <g transform={`translate(510, 140) rotate(${frontWingAngle})`}>
-                        {/* Endplate */}
-                        <path d="M 0 -5 L 10 -5 L 10 10 L 0 10 Z" fill={primaryColor} />
-                        {/* Main Planes */}
-                        <path d="M -10 5 L 30 5 L 40 8 L -10 8 Z" fill="url(#wingGradient)" />
-                        <path d="M -5 0 L 25 0 L 35 3 L -5 3 Z" fill="#333" />
-                    </g>
-                </g>
-
-                {/* Wheels (Near side) - Static position relative to ground, color changes */}
-                <g transform="translate(0, 0)">
-                    {/* Rear Wheel */}
-                    <g transform="translate(130, 145)">
-                        <circle cx="0" cy="0" r="34" fill="url(#tireGradient)" />
-                        {/* Tire Compound Stripe */}
-                        <circle cx="0" cy="0" r="24" fill="none" stroke={tireColor} strokeWidth="3" opacity="0.9" />
-                        {/* Rim */}
-                        <circle cx="0" cy="0" r="14" fill="#222" stroke="#444" strokeWidth="1" />
-                        <path d="M-14 0 L14 0 M0 -14 L0 14" stroke="#333" strokeWidth="1" />
-                        <circle cx="0" cy="0" r="4" fill="#000" /> {/* Wheel nut */}
-                    </g>
-
-                    {/* Front Wheel */}
-                    <g transform="translate(470, 145)">
-                        <circle cx="0" cy="0" r="31" fill="url(#tireGradient)" />
-                        {/* Tire Compound Stripe */}
-                        <circle cx="0" cy="0" r="21" fill="none" stroke={tireColor} strokeWidth="3" opacity="0.9" />
-                        {/* Rim */}
-                        <circle cx="0" cy="0" r="13" fill="#222" stroke="#444" strokeWidth="1" />
-                        <path d="M-13 0 L13 0 M0 -13 L0 13" stroke="#333" strokeWidth="1" />
-                        <circle cx="0" cy="0" r="3" fill="#000" />
-                    </g>
-                </g>
-
-                {/* Ground Line */}
-                <line x1="0" y1="179" x2="600" y2="179" stroke="#475569" strokeWidth="2" strokeDasharray="5,5" opacity="0.3" />
-            </svg>
-            
-            {/* Visual HUD */}
-            <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none">
+            {/* Visual HUD (Stays fixed relative to container) */}
+            <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none z-20">
                 <div className="bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] text-white font-mono border border-slate-700/50">
                     Rake: <span className={rakeAngle > 0 ? 'text-green-400' : 'text-slate-400'}>{rakeAngle.toFixed(1)}°</span>
                 </div>
                 <div className="bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] text-white font-mono border border-slate-700/50">
                     Ride Height: <span className="text-cyan-400">{setup.frontRideHeight}mm</span>
                 </div>
+                {/* Zoom Indicator */}
+                <div className="bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] text-yellow-400 font-mono border border-slate-700/50 flex items-center gap-1 mt-1">
+                    <ZoomIn size={10} /> {(zoom * 100).toFixed(0)}%
+                </div>
             </div>
+
+            {/* Reset Zoom Button */}
+            {zoom !== 1 && (
+                <div className="absolute bottom-3 right-3 z-20">
+                    <button 
+                        onClick={resetZoom}
+                        className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 p-1.5 rounded-full border border-slate-600 transition-colors shadow-lg"
+                        title="Reset Zoom"
+                    >
+                        <RotateCcw size={14} />
+                    </button>
+                </div>
+            )}
         </div>
 
         {/* Analysis Dashboard */}
