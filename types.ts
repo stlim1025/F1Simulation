@@ -16,45 +16,47 @@ export interface LocalizedString {
 export interface Team {
   id: string;
   name: LocalizedString;
-  logo: string; // URL
-  performanceFactor: number; // 0.98 (Best) ~ 1.02 (Worst) - Multiplier for lap time
-  color: string; // Hex code
+  logo: string;
+  performanceFactor: number;
+  color: string;
 }
 
 export interface Driver {
   id: string;
   name: LocalizedString;
   teamId: string;
-  photo: string; // URL
+  photo: string;
   number: number;
-  skill: number; // 0.0 ~ 1.0 (Subtracts time)
-  consistency: number; // 0.0 ~ 1.0 (Reduces randomness variance)
+  skill: number;
+  consistency: number;
+}
+
+export interface CarLivery {
+  primary: string;
+  secondary: string;
+  accent: string;
+  frontWing: string;
+  rearWing: string;
+  halo: string;
+  driverHelmet: string;
+  wheelRim: string;
 }
 
 export interface CarSetup {
-  // Aerodynamics (0-50)
   frontWing: number; 
   rearWing: number; 
-
-  // Transmission (50-100%)
   onThrottleDiff: number;
   offThrottleDiff: number;
-
-  // Suspension Physics
-  frontSuspension: number; // 1-41
-  rearSuspension: number; // 1-41
-  frontAntiRollBar: number; // 1-21
-  rearAntiRollBar: number; // 1-21
-  frontRideHeight: number; // 30-50 mm
-  rearRideHeight: number; // 30-50 mm
-
-  // Brakes
-  brakePressure: number; // 80-100 %
-  brakeBias: number; // 50-70 %
-
-  // Tires (PSI)
-  frontTirePressure: number; // 21.0 - 25.0
-  rearTirePressure: number; // 19.0 - 23.0
+  frontSuspension: number;
+  rearSuspension: number;
+  frontAntiRollBar: number;
+  rearAntiRollBar: number;
+  frontRideHeight: number;
+  rearRideHeight: number;
+  brakePressure: number;
+  brakeBias: number;
+  frontTirePressure: number;
+  rearTirePressure: number;
   tireCompound: TireCompound;
 }
 
@@ -68,20 +70,20 @@ export interface TrackData {
     tireWear: 'Low' | 'Medium' | 'High';
     speed: 'Low' | 'Medium' | 'High';
   };
-  baseLapTime: number; // in seconds
+  baseLapTime: number;
   idealSetup: {
-    wingAngle: number; // Average ideal wing (0-50 scale)
-    stiffness: number; // General stiffness requirement (1-10 scale for calculation reference)
+    wingAngle: number;
+    stiffness: number;
   };
-  sectors: ('Straight' | 'Corner' | 'Chicane')[]; // Simplified track map for simulation
-  svgPath: string; // Fallback SVG Path string 'M 100 100 L ...'
-  viewBox: string; // Fallback SVG viewBox '0 0 1000 1000'
-  mapUrl?: string; // Optional: Path to external SVG file (e.g., ./images/circuits/baku.svg)
-  pathOffset: number; // 0.0 to 1.0 - Shifts the starting point along the path
+  sectors: ('Straight' | 'Corner' | 'Chicane')[];
+  svgPath: string;
+  viewBox: string;
+  mapUrl?: string;
+  pathOffset: number;
 }
 
 export interface TelemetryPoint {
-  time: number; // Cumulative time in seconds
+  time: number;
   distance: number;
   speed: number;
   throttle: number;
@@ -99,8 +101,30 @@ export interface SimulationResult {
   sector3: number;
   telemetry: TelemetryPoint[];
   tireWear: number;
-  aiAnalysis: string; // From Gemini
-  setupSnapshot: CarSetup; // Store the setup used for this run
-  driver?: Driver; // The driver who did this run
-  team?: Team; // The team car used
+  aiAnalysis: string;
+  setupSnapshot: CarSetup;
+  driver?: Driver;
+  team?: Team;
+  nickname?: string; // For multiplayer
+}
+
+// MULTIPLAYER TYPES
+export interface MPPlayer {
+  id: string;
+  nickname: string;
+  livery: CarLivery;
+  setup: CarSetup;
+  team?: Team;
+  isReady: boolean;
+  lastResult?: SimulationResult | null;
+}
+
+export interface MPRoom {
+  id: string;
+  name: string;
+  trackId: string;
+  hostId: string;
+  players: MPPlayer[];
+  status: 'lobby' | 'racing' | 'finished';
+  createdAt: number; // Added for shared server sorting
 }

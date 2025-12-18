@@ -1,7 +1,7 @@
 
-import React, { useState, useCallback } from 'react';
-import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver, Language } from './types';
-import { DEFAULT_SETUP, TRACKS, TRANSLATIONS } from './constants';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver, Language, CarLivery } from './types';
+import { DEFAULT_SETUP, TRACKS, TRANSLATIONS, getTeamDefaultLivery } from './constants';
 import CarSetupPanel from './components/CarSetupPanel';
 import TrackSelector from './components/TrackSelector';
 import TeamDriverSelector from './components/TeamDriverSelector';
@@ -9,10 +9,13 @@ import TelemetryCharts from './components/TelemetryCharts';
 import LapHistoryChart from './components/LapHistoryChart';
 import TrackMap from './components/TrackMap';
 import CarVisualizer from './components/CarVisualizer';
+import LiveryEditor from './components/LiveryEditor';
+import MultiplayerPage from './pages/MultiplayerPage';
 import { getRaceEngineerFeedback } from './services/geminiService';
-import { Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, Cpu, Globe } from 'lucide-react';
+import { Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, Cpu, Globe, Palette, Users, User  } from 'lucide-react';
 
 const App: React.FC = () => {
+  const [view, setView] = useState<'solo' | 'multi'>('solo');
   const [setup, setSetup] = useState<CarSetup>(DEFAULT_SETUP);
   const [selectedTrack, setSelectedTrack] = useState<TrackData>(TRACKS[0]);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -22,7 +25,21 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<SimulationResult[]>([]);
   const [lang, setLang] = useState<Language>('ko');
 
+  // Livery State
+  const [livery, setLivery] = useState<CarLivery>(getTeamDefaultLivery(null));
+  const [showLiveryEditor, setShowLiveryEditor] = useState(false);
+
+  // Ref for automatic scrolling
+  const resultsRef = useRef<HTMLDivElement>(null);
+
   const t = TRANSLATIONS[lang];
+
+  // Auto-scroll when simResult is updated
+  useEffect(() => {
+    if (simResult && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [simResult]);
 
   // Helper to format seconds into MM:SS.mmm
   const formatTime = (seconds: number): string => {
@@ -70,8 +87,8 @@ const App: React.FC = () => {
 
     // PHYSICS UPDATE V3.1
     const avgWing = (setup.frontWing + setup.rearWing) / 2;
-    const dragFactor = (avgWing / 50) * 0.15; // Max 15% speed penalty
-    const downforceFactor = (avgWing / 50) * 0.25; // Max 25% corner grip
+    const dragFactor = (avgWing / 50) * 0.15; 
+    const downforceFactor = (avgWing / 50) * 0.25; 
 
     const trackIdealWing = selectedTrack.idealSetup.wingAngle;
     const wingDelta = Math.abs(avgWing - trackIdealWing);
@@ -102,7 +119,6 @@ const App: React.FC = () => {
 
     const pressurePenalty = (Math.abs(setup.frontTirePressure - 23) + Math.abs(setup.rearTirePressure - 21)) * 0.1;
 
-    // --- TOTAL LAP TIME CALCULATION (Game Logic) ---
     let finalLapTime = selectedTrack.baseLapTime;
     finalLapTime = finalLapTime * teamFactor;
     finalLapTime += timePenaltyAero;
@@ -120,8 +136,6 @@ const App: React.FC = () => {
     const variance = (1.0 - driverConsistency) * 0.15;
     finalLapTime += (Math.random() - 0.5) * variance;
 
-    // --- TELEMETRY GENERATION ---
-    // We calculate a "Raw Telemetry Time" and then scale it to match the "Game Logic Lap Time"
     const telemetry: TelemetryPoint[] = [];
     let currentDistance = 0;
     let cumulativeTimeRaw = 0;
@@ -136,7 +150,6 @@ const App: React.FC = () => {
             currentDistance += stepDist;
             let speed = 0;
             let throttle = 0;
-            let brake = 0;
             let gear = 1;
             let rpm = 0;
 
@@ -146,45 +159,37 @@ const App: React.FC = () => {
                 const maxSpeed = 350 - (dragFactor * 200) + teamSpeedBonus; 
                 speed = 100 + (maxSpeed - 100) * Math.sqrt(progress); 
                 throttle = 100;
-                brake = 0;
                 gear = Math.min(8, Math.floor(speed / 40) + 1);
             } else if (sector === 'Corner') {
                 const cornerSpeed = 90 + (downforceFactor * 1000 * tireGrip); 
                 speed = cornerSpeed;
                 throttle = setup.offThrottleDiff > 80 ? 70 : 60; 
-                brake = i < 5 ? setup.brakePressure : 0; 
                 gear = Math.min(8, Math.floor(speed / 40) + 1);
             } else { 
                 speed = 70 + (downforceFactor * 500);
                 throttle = 40;
-                brake = i < 10 ? 100 : 0;
                 gear = 2;
             }
             
             rpm = (speed / 40) * 1000 + 4000 + (Math.random() * 500);
             if (rpm > 12500) rpm = 12500;
             
-            // Calculate time for this step (Distance / Speed)
-            // Speed is km/h, distance is meters. 
-            // m/s = speed / 3.6
-            // time = dist / (speed/3.6)
             const speedMS = Math.max(10, speed) / 3.6; 
             const stepTime = stepDist / speedMS;
             cumulativeTimeRaw += stepTime;
 
             telemetry.push({
-                time: cumulativeTimeRaw, // Raw time, will be scaled later
+                time: cumulativeTimeRaw, 
                 distance: Math.round(currentDistance),
                 speed: Math.round(speed),
                 throttle,
-                brake,
+                brake: 0,
                 gear,
                 rpm: Math.round(rpm)
             });
         }
     });
 
-    // Scale telemetry timestamps to match the final calculated lap time exactly
     const timeScaleFactor = finalLapTime / cumulativeTimeRaw;
     const scaledTelemetry = telemetry.map(p => ({
         ...p,
@@ -228,7 +233,8 @@ const App: React.FC = () => {
 
   const handleTeamSelect = (team: Team) => {
     setSelectedTeam(team);
-    setSelectedDriver(null); // Reset driver when team changes
+    setSelectedDriver(null); 
+    setLivery(getTeamDefaultLivery(team)); 
   };
 
   return (
@@ -246,6 +252,15 @@ const App: React.FC = () => {
                 </h1>
             </div>
             
+            <nav className="flex bg-slate-800 p-1 rounded-lg">
+                <button onClick={() => setView('solo')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${view === 'solo' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                    <User size={14}/> {t.solo}
+                </button>
+                <button onClick={() => setView('multi')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${view === 'multi' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                    <Users size={14}/> {t.multi}
+                </button>
+            </nav>
+            
             <div className="flex items-center gap-4">
                 <div className="text-xs text-slate-500 font-mono hidden md:block">
                     {t.subtitle}
@@ -262,149 +277,176 @@ const App: React.FC = () => {
       </header>
 
       <main className="container mx-auto px-4 pt-4 md:pt-8">
-        
-        <TrackSelector 
-            tracks={TRACKS} 
-            selectedTrack={selectedTrack} 
-            onSelect={handleTrackSelect} 
-            lang={lang}
-        />
-
-        <TeamDriverSelector 
-            selectedTeam={selectedTeam} 
-            selectedDriver={selectedDriver} 
-            onSelectTeam={handleTeamSelect}
-            onSelectDriver={setSelectedDriver}
-            lang={lang}
-        />
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: Setup Panel (Sticky) */}
-            <div className="lg:col-span-4 lg:sticky lg:top-24 h-auto lg:h-[calc(100vh-120px)]">
-                <CarSetupPanel 
-                    setup={setup} 
-                    track={selectedTrack}
-                    onChange={setSetup} 
-                    onRun={runSimulation}
-                    isSimulating={isSimulating}
+        {view === 'multi' ? (
+            <MultiplayerPage setup={setup} livery={livery} lang={lang} team={selectedTeam} />
+        ) : (
+            <div className="animate-fade-in space-y-8">
+                <TrackSelector 
+                    tracks={TRACKS} 
+                    selectedTrack={selectedTrack} 
+                    onSelect={handleTrackSelect} 
                     lang={lang}
                 />
-            </div>
 
-            {/* Right Column: Visualizer + Results & Map */}
-            <div className="lg:col-span-8 space-y-8">
-                {/* Visualizer and Analysis Dashboard */}
-                <div className="animate-fade-in">
-                    <CarVisualizer 
-                        setup={setup} 
-                        track={selectedTrack} 
-                        lang={lang} 
-                        teamColor={selectedTeam?.color}
-                    />
-                </div>
+                <TeamDriverSelector 
+                    selectedTeam={selectedTeam} 
+                    selectedDriver={selectedDriver} 
+                    onSelectTeam={handleTeamSelect}
+                    onSelectDriver={setSelectedDriver}
+                    lang={lang}
+                />
 
-                {/* Visual Track Replay Map */}
-                {history.length > 0 && simResult && (
-                    <div className="animate-fade-in">
-                        <TrackMap 
-                            track={selectedTrack} 
-                            team={selectedTeam} 
-                            result={simResult}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                    {/* Left Column: Setup Panel (Sticky) */}
+                    <div className="lg:col-span-4 lg:sticky lg:top-24 h-auto lg:h-[calc(100vh-120px)]">
+                        <CarSetupPanel 
+                            setup={setup} 
+                            track={selectedTrack}
+                            onChange={setSetup} 
+                            onRun={runSimulation}
+                            isSimulating={isSimulating}
                             lang={lang}
                         />
                     </div>
-                )}
 
-                {history.length === 0 ? (
-                    <div className="h-64 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
-                        <Trophy className="text-slate-700 mb-4" size={48} />
-                        <p className="text-slate-500 text-lg text-center px-4">
-                            {!selectedDriver ? t.selectPrompt : t.ready}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="animate-fade-in space-y-8">
-                        <LapHistoryChart history={history} baseLapTime={selectedTrack.baseLapTime} lang={lang} formatTime={formatTime} />
+                    {/* Right Column: Visualizer + Results & Map */}
+                    <div className="lg:col-span-8 space-y-8">
+                        {/* Visualizer and Analysis Dashboard */}
+                        <div className="animate-fade-in relative min-h-[400px]">
+                            {/* Livery Editor Overlay */}
+                            {showLiveryEditor && (
+                                <LiveryEditor 
+                                    livery={livery}
+                                    onChange={setLivery}
+                                    onReset={() => setLivery(getTeamDefaultLivery(selectedTeam))}
+                                    onClose={() => setShowLiveryEditor(false)}
+                                    lang={lang}
+                                />
+                            )}
+                            
+                            {/* Edit Livery Trigger */}
+                            {!showLiveryEditor && (
+                                <button 
+                                    onClick={() => setShowLiveryEditor(true)}
+                                    className="absolute top-4 left-4 z-20 bg-slate-800/80 hover:bg-slate-700 text-slate-300 p-2 rounded-full border border-slate-600 transition-colors shadow-lg"
+                                    title={t.customizeLivery}
+                                >
+                                    <Palette size={18} />
+                                </button>
+                            )}
 
-                        {[...history].reverse().map((run, index) => {
-                            const isLatest = index === 0;
-                            const previousRun = history.find(h => h.runNumber === run.runNumber - 1);
-                            const lapTimeDelta = previousRun ? run.lapTime - previousRun.lapTime : 0;
-                            const setupChanges = previousRun ? getSetupDiff(run.setupSnapshot, previousRun.setupSnapshot) : t.initial;
+                            <CarVisualizer 
+                                setup={setup} 
+                                track={selectedTrack} 
+                                lang={lang} 
+                                livery={livery}
+                            />
+                        </div>
 
-                            return (
-                                <div key={run.runNumber} className={`border rounded-xl overflow-hidden transition-all ${isLatest ? 'bg-slate-900 border-slate-700 shadow-2xl' : 'bg-slate-900/50 border-slate-800 opacity-80 hover:opacity-100'}`}>
-                                    
-                                    <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/30 gap-2">
-                                        <div className="flex items-center gap-3">
-                                            <span className={`text-xs font-bold px-2 py-1 rounded ${isLatest ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
-                                                RUN {run.runNumber}
-                                            </span>
-                                            {run.driver && (
-                                                <div className="flex items-center gap-2 bg-slate-950 px-2 py-1 rounded border border-slate-800">
-                                                    <span className="text-xs font-bold text-white">{run.driver.name[lang]}</span>
-                                                    <span className="text-[10px] text-slate-500">#{run.driver.number}</span>
+                        {/* Visual Track Replay Map - Automatically scrolls here after simulation */}
+                        {history.length > 0 && simResult && (
+                            <div ref={resultsRef} className="animate-fade-in scroll-mt-24">
+                                <TrackMap 
+                                    track={selectedTrack} 
+                                    team={selectedTeam} 
+                                    result={simResult}
+                                    lang={lang}
+                                />
+                            </div>
+                        )}
+
+                        {history.length === 0 ? (
+                            <div className="h-64 flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl border-dashed">
+                                <Trophy className="text-slate-700 mb-4" size={48} />
+                                <p className="text-slate-500 text-lg text-center px-4">
+                                    {!selectedDriver ? t.selectPrompt : t.ready}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="animate-fade-in space-y-8">
+                                <LapHistoryChart history={history} baseLapTime={selectedTrack.baseLapTime} lang={lang} formatTime={formatTime} />
+
+                                {[...history].reverse().map((run, index) => {
+                                    const isLatest = index === 0;
+                                    const previousRun = history.find(h => h.runNumber === run.runNumber - 1);
+                                    const lapTimeDelta = previousRun ? run.lapTime - previousRun.lapTime : 0;
+                                    const setupChanges = previousRun ? getSetupDiff(run.setupSnapshot, previousRun.setupSnapshot) : t.initial;
+
+                                    return (
+                                        <div key={run.runNumber} className={`border rounded-xl overflow-hidden transition-all ${isLatest ? 'bg-slate-900 border-slate-700 shadow-2xl' : 'bg-slate-900/50 border-slate-800 opacity-80 hover:opacity-100'}`}>
+                                            
+                                            <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/30 gap-2">
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`text-xs font-bold px-2 py-1 rounded ${isLatest ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                                                        RUN {run.runNumber}
+                                                    </span>
+                                                    {run.driver && (
+                                                        <div className="flex items-center gap-2 bg-slate-950 px-2 py-1 rounded border border-slate-800">
+                                                            <span className="text-xs font-bold text-white">{run.driver.name[lang]}</span>
+                                                            <span className="text-[10px] text-slate-500">#{run.driver.number}</span>
+                                                        </div>
+                                                    )}
+                                                    <span className="text-slate-500 text-xs font-mono">
+                                                        {new Date(run.timestamp).toLocaleTimeString()}
+                                                    </span>
                                                 </div>
-                                            )}
-                                            <span className="text-slate-500 text-xs font-mono">
-                                                {new Date(run.timestamp).toLocaleTimeString()}
-                                            </span>
-                                        </div>
-                                        {previousRun && (
-                                            <div className="flex items-center gap-2 text-sm font-mono self-end sm:self-auto">
-                                                <span className="text-slate-500 text-xs hidden sm:inline">vs Run {previousRun.runNumber}</span>
-                                                <span className={`font-bold flex items-center ${lapTimeDelta < 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                    {lapTimeDelta < 0 ? <ArrowDown size={14}/> : <ArrowUp size={14}/>}
-                                                    {Math.abs(lapTimeDelta).toFixed(3)}s
-                                                </span>
+                                                {previousRun && (
+                                                    <div className="flex items-center gap-2 text-sm font-mono self-end sm:self-auto">
+                                                        <span className="text-slate-500 text-xs hidden sm:inline">vs Run {previousRun.runNumber}</span>
+                                                        <span className={`font-bold flex items-center ${lapTimeDelta < 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                            {lapTimeDelta < 0 ? <ArrowDown size={14}/> : <ArrowUp size={14}/>}
+                                                            {Math.abs(lapTimeDelta).toFixed(3)}s
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
 
-                                    <div className="p-4">
-                                        <div className="mb-4 text-xs text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800/50 flex items-start gap-2">
-                                            <SettingsIconWrapper />
-                                            <span className="font-mono break-all sm:break-normal">{setupChanges}</span>
-                                        </div>
+                                            <div className="p-4">
+                                                <div className="mb-4 text-xs text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800/50 flex items-start gap-2">
+                                                    <SettingsIconWrapper />
+                                                    <span className="font-mono break-all sm:break-normal">{setupChanges}</span>
+                                                </div>
 
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                                            <StatBox label={t.lapTime} value={formatTime(run.lapTime)} 
-                                                subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs ${t.target}`}
-                                                subColor={run.lapTime < selectedTrack.baseLapTime ? 'text-green-500' : 'text-red-500'}
-                                                icon={Clock}
-                                            />
-                                            <StatBox label={t.tireWear} value={`${run.tireWear.toFixed(1)}%`} 
-                                                subValue={`${t.estLaps} ${Math.max(1, Math.floor(100/run.tireWear))}`}
-                                                icon={Disc}
-                                            />
-                                            <StatBox label={t.topSpeed} value={`${Math.max(...run.telemetry.map(t => t.speed))}`} 
-                                                unit="km/h"
-                                                icon={Activity}
-                                            />
-                                        </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                                    <StatBox label={t.lapTime} value={formatTime(run.lapTime)} 
+                                                        subValue={`${run.lapTime < selectedTrack.baseLapTime ? '-' : '+'}${(Math.abs(run.lapTime - selectedTrack.baseLapTime)).toFixed(3)} vs ${t.target}`}
+                                                        subColor={run.lapTime < selectedTrack.baseLapTime ? 'text-green-500' : 'text-red-500'}
+                                                        icon={Clock}
+                                                    />
+                                                    <StatBox label={t.tireWear} value={`${run.tireWear.toFixed(1)}%`} 
+                                                        subValue={`${t.estLaps} ${Math.max(1, Math.floor(100/run.tireWear))}`}
+                                                        icon={Disc}
+                                                    />
+                                                    <StatBox label={t.topSpeed} value={`${Math.max(...run.telemetry.map(t => t.speed))}`} 
+                                                        unit="km/h"
+                                                        icon={Activity}
+                                                    />
+                                                </div>
 
-                                        <div className={`p-4 rounded-lg mb-4 ${isLatest ? 'bg-gradient-to-r from-slate-800 to-slate-900 border-l-4 border-cyan-500' : 'bg-slate-950 border border-slate-800'}`}>
-                                            <h3 className={`font-bold uppercase tracking-wider text-xs mb-2 flex items-center gap-2 ${isLatest ? 'text-cyan-400' : 'text-slate-500'}`}>
-                                                <Cpu size={14}/> {t.engineer}
-                                            </h3>
-                                            <p className={`font-mono text-sm leading-relaxed ${isLatest ? 'text-slate-200' : 'text-slate-500'}`}>
-                                                "{run.aiAnalysis}"
-                                            </p>
-                                        </div>
+                                                <div className={`p-4 rounded-lg mb-4 ${isLatest ? 'bg-gradient-to-r from-slate-800 to-slate-900 border-l-4 border-cyan-500' : 'bg-slate-950 border border-slate-800'}`}>
+                                                    <h3 className={`font-bold uppercase tracking-wider text-xs mb-2 flex items-center gap-2 ${isLatest ? 'text-cyan-400' : 'text-slate-500'}`}>
+                                                        <Cpu size={14}/> {t.engineer}
+                                                    </h3>
+                                                    <p className={`font-mono text-sm leading-relaxed ${isLatest ? 'text-slate-200' : 'text-slate-500'}`}>
+                                                        "{run.aiAnalysis}"
+                                                    </p>
+                                                </div>
 
-                                        {isLatest && (
-                                            <div className="mt-6 pt-6 border-t border-slate-800 animate-fade-in">
-                                                <TelemetryCharts data={run.telemetry} />
+                                                {isLatest && (
+                                                    <div className="mt-6 pt-6 border-t border-slate-800 animate-fade-in">
+                                                        <TelemetryCharts data={run.telemetry} />
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
-                )}
+                </div>
             </div>
-        </div>
+        )}
       </main>
     </div>
   );

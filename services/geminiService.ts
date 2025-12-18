@@ -72,8 +72,9 @@ export const getRaceEngineerFeedback = async (
       4. Skip greetings, go straight to the point.
     `;
 
+    // Fix: Updated to recommended gemini-3-flash-preview model for text tasks
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         temperature: 0.9, // Increase creativity
