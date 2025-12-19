@@ -51,7 +51,7 @@ const saveLocalDb = () => {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(localDb, null, 2));
   } catch (err) {
-    console.error('[DB] ❌ Failed to save local DB file. Check folder permissions:', err.message);
+    // Silent fail in production or production logging
   }
 };
 
@@ -136,8 +136,7 @@ app.get('/api/posts', async (req, res) => {
       const result = await pool.query(query, params);
       res.json(result.rows);
     } catch (err) {
-      console.error(`[DB] ❌ GET /api/posts error (dbType: ${dbType}):`, err);
-      res.status(500).json({ error: 'Database query failed', message: err.message });
+      res.status(500).json({ error: 'Database query failed' });
     }
   } else {
     // Local DB
@@ -195,8 +194,7 @@ app.post('/api/posts', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
-      console.error('[API] ❌ Post creation error:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Post creation failed' });
     }
   } else {
     const newPost = {
@@ -226,8 +224,7 @@ app.post('/api/comments', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
-      console.error('[API] ❌ Comment creation error:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Comment creation failed' });
     }
   } else {
     const newComment = {
@@ -251,11 +248,6 @@ const logs = []; // In-memory connection logs
 const rooms = new Map(); // roomId -> Room Object
 
 io.on('connection', (socket) => {
-  const clientIp = socket.handshake.address;
-  const userAgent = socket.handshake.headers['user-agent'];
-
-  console.log(`[Socket] Client connected: ${socket.id} (IP: ${clientIp})`);
-
   // 1. Lobby & Room Management
   socket.on('getLobby', () => {
     socket.emit('lobbyUpdate', Array.from(rooms.values()));

@@ -43,19 +43,16 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     socket.connect();
 
     socket.on('connect', () => {
-      console.log('[Socket] ✅ Connected:', socket.id);
       setIsConnected(true);
       setMyPlayerId(socket.id!);
       socket.emit('getLobby');
     });
 
-    socket.on('connect_error', (err) => {
-      console.error('[Socket] ❌ Connection Error:', err.message);
+    socket.on('connect_error', () => {
       setIsConnected(false);
     });
 
-    socket.on('disconnect', (reason) => {
-      console.warn('[Socket] ⚠️ Disconnected:', reason);
+    socket.on('disconnect', () => {
       setIsConnected(false);
     });
 
