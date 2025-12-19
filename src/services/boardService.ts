@@ -28,7 +28,10 @@ export const BoardService = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(post),
             });
-            if (!response.ok) throw new Error('Failed to create post');
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Failed to create post: ${response.status} ${errorText}`);
+            }
             return await response.json();
         } catch (error) {
             console.error('Error creating post:', error);

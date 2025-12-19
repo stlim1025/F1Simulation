@@ -20,6 +20,11 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       allowedHosts: true,
       proxy: {
+        '/api/posts': {
+          target: 'http://13.238.218.144:3001',
+          changeOrigin: true,
+          secure: false,
+        },
         '/api/jsonBlob': {
           target: 'https://jsonblob.com',
           changeOrigin: true,

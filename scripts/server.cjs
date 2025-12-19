@@ -24,7 +24,7 @@ const io = new Server(server, {
 // PostgreSQL Connection
 const pool = new Pool({
   user: 'myuser',
-  host: '13.238.218.144',
+  host: 'localhost',
   database: 'f1simulator',
   password: 'Tmdxor12!',
   port: 5432,
