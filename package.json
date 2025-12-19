@@ -10,10 +10,14 @@
   },
   "dependencies": {
     "@google/genai": "^1.33.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
     "lucide-react": "^0.560.0",
-    "recharts": "^3.5.1",
+    "pg": "^8.16.3",
+    "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "react": "^19.2.3"
+    "recharts": "^3.5.1",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
