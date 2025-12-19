@@ -17,8 +17,9 @@ export interface Post {
     created_at: string;
 }
 
-const API_HOSTNAME = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-const API_BASE = `${window.location.protocol}//${API_HOSTNAME}:3001/api`; // Ensure pointing to node server
+const API_BASE = window.location.hostname === 'localhost'
+    ? 'http://localhost:3001/api'
+    : `${window.location.origin}/api`;
 
 export const BoardService = {
     async getPosts(teamId?: string): Promise<Post[]> {

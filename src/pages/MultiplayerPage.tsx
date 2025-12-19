@@ -14,13 +14,15 @@ interface Props {
 }
 
 // Initialize Socket outside component to prevent reconnects
+// Use port 3001 for local dev, use origin (via Nginx proxy) for production
 const SOCKET_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3001'
-  : `${window.location.protocol}//${window.location.hostname}:3001`;
+  : window.location.origin;
 
 const socket: Socket = io(SOCKET_URL, {
   autoConnect: false,
   reconnection: true,
+  path: window.location.hostname === 'localhost' ? undefined : '/socket.io'
 });
 
 const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
