@@ -7,7 +7,7 @@ export interface Post {
     created_at: string;
 }
 
-const API_URL = 'http://localhost:3001/api/posts';
+const API_URL = '/api/posts';
 
 export const BoardService = {
     async getPosts(): Promise<Post[]> {
