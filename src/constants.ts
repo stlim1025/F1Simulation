@@ -305,7 +305,7 @@ export const TEAMS: Team[] = [
     name: { ko: '알핀', en: 'Alpine' },
     logo: '/src/images/teams/alpine.png',
     performanceFactor: 1.001,
-    color: '#0090FF'
+    color: '#FF1493'
   },
   {
     id: 'haas',

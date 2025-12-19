@@ -1,0 +1,131 @@
+{
+  "posts": [
+    {
+      "id": 2,
+      "title": "ㅇㅇㅇ",
+      "content": "ㅇㅇㅇ",
+      "author": "ㅇㅇㅇㅇ",
+      "team_id": "mclaren",
+      "views": 4,
+      "created_at": "2025-12-19T16:29:48.978Z"
+    },
+    {
+      "id": 1,
+      "title": "테스트",
+      "content": "테스으",
+      "author": "예쓰",
+      "team_id": null,
+      "views": 3,
+      "created_at": "2025-12-19T16:23:29.010Z"
+    },
+    {
+      "id": 3,
+      "title": "여기는 페라리",
+      "content": "페라리다",
+      "author": "페라리 왕팬",
+      "team_id": "ferrari",
+      "views": 0,
+      "created_at": "2025-12-19T16:51:52.284Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": 1,
+      "post_id": 1,
+      "content": "댓글",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:28.790Z"
+    },
+    {
+      "id": 2,
+      "post_id": 1,
+      "content": "테스트",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:31.030Z"
+    },
+    {
+      "id": 3,
+      "post_id": 1,
+      "content": "더더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:32.597Z"
+    },
+    {
+      "id": 4,
+      "post_id": 1,
+      "content": "더더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.025Z"
+    },
+    {
+      "id": 5,
+      "post_id": 1,
+      "content": "더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.224Z"
+    },
+    {
+      "id": 6,
+      "post_id": 1,
+      "content": "더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.369Z"
+    },
+    {
+      "id": 7,
+      "post_id": 1,
+      "content": "더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.520Z"
+    },
+    {
+      "id": 8,
+      "post_id": 1,
+      "content": "ㅓㄷ",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.656Z"
+    },
+    {
+      "id": 9,
+      "post_id": 1,
+      "content": "ㅓㄷ",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:33.808Z"
+    },
+    {
+      "id": 10,
+      "post_id": 1,
+      "content": "더",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:29:34.474Z"
+    },
+    {
+      "id": 11,
+      "post_id": 2,
+      "content": "dd",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:42:59.936Z"
+    },
+    {
+      "id": 12,
+      "post_id": 2,
+      "content": "d",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:43:00.144Z"
+    },
+    {
+      "id": 13,
+      "post_id": 2,
+      "content": "d",
+      "author": "예쓰",
+      "created_at": "2025-12-19T16:43:00.355Z"
+    },
+    {
+      "id": 14,
+      "post_id": 2,
+      "content": "dd",
+      "author": "Anonymous",
+      "created_at": "2025-12-19T16:44:01.515Z"
+    }
+  ]
+}

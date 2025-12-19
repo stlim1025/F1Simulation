@@ -43,8 +43,8 @@ export interface CarLivery {
 }
 
 export interface CarSetup {
-  frontWing: number; 
-  rearWing: number; 
+  frontWing: number;
+  rearWing: number;
   onThrottleDiff: number;
   offThrottleDiff: number;
   frontSuspension: number;
@@ -116,6 +116,14 @@ export interface MPPlayer {
   setup: CarSetup;
   team?: Team;
   isReady: boolean;
+  // Racing State
+  x?: number;
+  y?: number;
+  rotation?: number; // radians
+  speed?: number;
+  lap?: number;
+  finished?: boolean;
+  finishTime?: number;
   lastResult?: SimulationResult | null;
 }
 

@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { PaddockService } from '../services/paddockService';
-import { Users, Plus, Play, LogIn, UserCircle, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
+import RaceCanvas from '../components/RaceCanvas';
+import { io, Socket } from 'socket.io-client';
 
 interface Props {
   setup: CarSetup;
@@ -13,143 +13,128 @@ interface Props {
   team: Team | null;
 }
 
+// Initialize Socket outside component to prevent reconnects
+const socket: Socket = io('http://localhost:3001', {
+  autoConnect: false,
+  reconnection: true,
+});
+
 const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   const t = TRANSLATIONS[lang];
   const [nickname, setNickname] = useState(localStorage.getItem('f1_nickname') || '');
   const [isNickSet, setIsNickSet] = useState(!!nickname);
-  const [rooms, setRooms] = useState<MPRoom[]>([]);
-  const [currentRoom, setCurrentRoom] = useState<MPRoom | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isServerOnline, setIsServerOnline] = useState(true);
+
+  // Lobby State
+  const [rooms, setRooms] = useState<any[]>([]); // Using 'any' briefly to match server object structure if differs
+  const [currentRoom, setCurrentRoom] = useState<any | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
   const [isSelectingTrack, setIsSelectingTrack] = useState(false);
-  const [myPlayerId] = useState(() => {
-    const savedId = localStorage.getItem('f1_driver_id');
-    if (savedId) return savedId;
-    const newId = 'driver-' + Math.random().toString(36).substr(2, 5);
-    localStorage.setItem('f1_driver_id', newId);
-    return newId;
-  });
+  const [myPlayerId, setMyPlayerId] = useState<string>('');
 
-  const pollInterval = useRef<number | null>(null);
-
-  // 로비 및 현재 방 상태 새로고침
-  const refreshLobby = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true);
-    try {
-      const globalRooms = await PaddockService.getRooms();
-      setRooms(globalRooms);
-      setIsServerOnline(true);
-
-      // 참여 중인 방이 있다면 최신 서버 데이터로 업데이트
-      if (currentRoom) {
-        const updated = globalRooms.find(r => r.id === currentRoom.id);
-        if (updated) {
-          setCurrentRoom(updated);
-        } else {
-          // 방장이 방을 닫았거나 만료된 경우
-          setCurrentRoom(null);
-        }
-      }
-    } catch (e) {
-      setIsServerOnline(false);
-    } finally {
-      if (!silent) setIsLoading(false);
-    }
-  }, [currentRoom]);
-
-  // 실시간 동기화: 5초마다 서버 확인
   useEffect(() => {
-    refreshLobby();
-    pollInterval.current = window.setInterval(() => {
-      refreshLobby(true);
-    }, 5000);
+    // Socket Sync
+    socket.connect();
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setMyPlayerId(socket.id!);
+      socket.emit('getLobby');
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      setCurrentRoom(null);
+    });
+
+    socket.on('lobbyUpdate', (updatedRooms) => {
+      setRooms(updatedRooms);
+    });
+
+    socket.on('roomJoined', (room) => {
+      setCurrentRoom(room);
+    });
+
+    socket.on('roomUpdate', (room) => {
+      setCurrentRoom(room);
+    });
+
+    socket.on('raceStarted', (room) => {
+      // Handle Race Start Transition
+      setCurrentRoom(room);
+      alert("RACE STARTING! (Implementation coming next)");
+    });
+
+    socket.on('error', (msg) => {
+      alert(`Error: ${msg}`);
+    });
 
     return () => {
-      if (pollInterval.current) clearInterval(pollInterval.current);
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('lobbyUpdate');
+      socket.off('roomJoined');
+      socket.off('roomUpdate');
+      socket.off('raceStarted');
+      socket.off('error');
+      socket.disconnect();
     };
-  }, [refreshLobby]);
+  }, []);
+
+  // Update Setup/Livery dynamically if room is active
+  useEffect(() => {
+    if (currentRoom && socket.connected) {
+      socket.emit('updateSetup', { roomId: currentRoom.id, setup, livery });
+    }
+  }, [setup, livery]);
+
 
   const handleSetNickname = () => {
     if (nickname.trim()) {
       localStorage.setItem('f1_nickname', nickname);
       setIsNickSet(true);
-    }
-  };
-
-  const createRoom = async () => {
-    setIsLoading(true);
-    const newRoom: MPRoom = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: `${nickname}의 레이스 패독`,
-      trackId: TRACKS[0].id,
-      hostId: myPlayerId,
-      players: [{ id: myPlayerId, nickname, livery, setup, team: team || undefined, isReady: true }],
-      status: 'lobby',
-      createdAt: Date.now()
-    };
-
-    const success = await PaddockService.syncRoom(newRoom);
-    if (success) {
-      setCurrentRoom(newRoom);
-    } else {
-      alert("글로벌 서버 등록에 실패했습니다. 네트워크를 확인하세요.");
-    }
-    setIsLoading(false);
-  };
-
-  const joinRoom = async (room: MPRoom) => {
-    if (room.players.length >= 4) return alert(t.roomFull);
-
-    // 이미 참여 중인지 확인
-    if (room.players.some(p => p.id === myPlayerId)) {
-      setCurrentRoom(room);
-      return;
-    }
-
-    const updatedRoom: MPRoom = {
-      ...room,
-      players: [...room.players, { id: myPlayerId, nickname, livery, setup, team: team || undefined, isReady: false }]
-    };
-
-    setIsLoading(true);
-    const success = await PaddockService.syncRoom(updatedRoom);
-    if (success) {
-      setCurrentRoom(updatedRoom);
-    } else {
-      alert("방 입장에 실패했습니다.");
-    }
-    setIsLoading(false);
-  };
-
-  const leaveRoom = async () => {
-    if (currentRoom) {
-      setIsLoading(true);
-      if (currentRoom.hostId === myPlayerId) {
-        // 방장이 나가면 방 폭파
-        await PaddockService.deleteRoom(currentRoom.id);
-      } else {
-        // 일반 유저는 본인만 삭제
-        const updatedRoom = {
-          ...currentRoom,
-          players: currentRoom.players.filter(p => p.id !== myPlayerId)
-        };
-        await PaddockService.syncRoom(updatedRoom);
+      if (socket.connected) {
+        // In a real app, we'd emit an update to the server here too
       }
     }
+  };
+
+  const resetNickname = () => {
+    setIsNickSet(false);
+  };
+
+  // ... rest of logic
+
+  const createRoom = () => {
+    if (!nickname) return;
+    const player = { nickname, setup, livery, team };
+    socket.emit('createRoom', { name: `${nickname}'s Paddock`, trackId: TRACKS[0].id, player });
+  };
+
+  const joinRoom = (roomId: string) => {
+    if (!nickname) return;
+    const player = { nickname, setup, livery, team };
+    socket.emit('joinRoom', { roomId, player });
+  };
+
+  const leaveRoom = () => {
+    socket.emit('leaveRoom');
     setCurrentRoom(null);
-    refreshLobby();
   };
 
-  const changeTrack = async (newTrackId: string) => {
-    if (!currentRoom || currentRoom.hostId !== myPlayerId) return;
-
-    const updatedRoom: MPRoom = { ...currentRoom, trackId: newTrackId };
-    // UI 즉시 반영
-    setCurrentRoom(updatedRoom);
-    setIsSelectingTrack(false);
-    // 서버 동기화
-    await PaddockService.syncRoom(updatedRoom);
+  const toggleReady = () => {
+    if (!currentRoom) return;
+    const me = currentRoom.players.find((p: any) => p.id === socket.id);
+    if (me) {
+      socket.emit('updateReady', { roomId: currentRoom.id, isReady: !me.isReady });
+    }
   };
+
+  const startRace = () => {
+    if (!currentRoom) return;
+    socket.emit('startRace', { roomId: currentRoom.id });
+  };
+
 
   if (!isNickSet) {
     return (
@@ -181,38 +166,29 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     );
   }
 
+  // --- RACING VIEW ---
+  if (currentRoom && currentRoom.status === 'racing') {
+    const me = currentRoom.players.find((p: any) => p.id === socket.id);
+    if (!me) return <div>Error: Player not found in race</div>;
+
+    return (
+      <RaceCanvas
+        room={currentRoom}
+        me={me}
+        socket={socket}
+        onLeave={leaveRoom}
+      />
+    );
+  }
+
+  // --- ROOM VIEW ---
   if (currentRoom) {
     const track = TRACKS.find(tr => tr.id === currentRoom.trackId) || TRACKS[0];
-    const isHost = currentRoom.hostId === myPlayerId;
+    const isHost = currentRoom.hostId === socket.id;
+    const me = currentRoom.players.find((p: any) => p.id === socket.id);
 
     return (
       <div className="animate-fade-in space-y-6">
-        {/* Track Selection Modal */}
-        {isSelectingTrack && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-2xl font-black text-white italic uppercase tracking-tight">{t.selectNewTrack}</h3>
-                <button onClick={() => setIsSelectingTrack(false)} className="text-slate-500 hover:text-white transition-colors">
-                  <X size={24} />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700">
-                {TRACKS.map(tr => (
-                  <button
-                    key={tr.id}
-                    onClick={() => changeTrack(tr.id)}
-                    className={`p-4 rounded-xl border-2 text-left transition-all group ${tr.id === currentRoom.trackId ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}
-                  >
-                    <div className="text-[10px] font-bold opacity-60 uppercase mb-1">{tr.country[lang]}</div>
-                    <div className="text-sm font-black group-hover:text-white transition-colors">{tr.name[lang]}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/50 p-6 rounded-2xl border border-slate-800 backdrop-blur-sm gap-4">
           <div className="flex items-center gap-4">
             <button onClick={leaveRoom} className="text-slate-400 hover:text-white transition-colors bg-slate-800 p-2.5 rounded-full border border-slate-700">
@@ -224,37 +200,45 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                 {isHost && <Crown size={18} className="text-yellow-500" />}
               </div>
               <p className="text-xs text-slate-500 uppercase font-bold tracking-widest mt-1">
-                {track.name[lang]} | {currentRoom.players.length}/4 명 접속됨
+                {track.name[lang]} | {currentRoom.players.length}/4 DRIVERS
               </p>
             </div>
           </div>
 
           <div className="flex gap-3 w-full md:w-auto">
+            <button
+              onClick={toggleReady}
+              className={`flex-1 md:flex-none px-6 py-3 rounded-lg font-black uppercase flex items-center justify-center gap-2 transition-all border transform active:scale-95 ${me?.isReady
+                ? 'bg-green-500/10 text-green-500 border-green-500 hover:bg-green-500 hover:text-white'
+                : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-white hover:text-white'
+                }`}
+            >
+              <CheckCircle2 size={18} /> {me?.isReady ? 'READY!' : 'NOT READY'}
+            </button>
+
             {isHost && (
               <button
-                onClick={() => setIsSelectingTrack(true)}
-                className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-lg font-black uppercase text-xs tracking-widest transition-all flex items-center gap-2 border border-slate-700"
+                disabled={!currentRoom.players.every((p: any) => p.isReady)} // 모든 플레이어가 레디해야 활성화
+                onClick={startRace}
+                className={`flex-1 md:flex-none px-8 py-3 rounded-lg font-black uppercase flex items-center justify-center gap-2 transition-all ${currentRoom.players.every((p: any) => p.isReady)
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] cursor-pointer'
+                  : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                  }`}
               >
-                <MapIcon size={14} /> {t.changeTrack}
+                <Play size={18} fill="currentColor" /> {t.startRace}
               </button>
             )}
-            <button
-              disabled={!isHost}
-              className={`flex-1 md:flex-none px-8 py-3 rounded-lg font-black uppercase flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(34,197,94,0.4)] ${isHost ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-            >
-              <Play size={18} fill="currentColor" /> {t.startRace}
-            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
           {Array.from({ length: 4 }).map((_, idx) => {
             const player = currentRoom.players[idx];
-            const isMe = player?.id === myPlayerId;
+            const isMe = player?.id === socket.id;
             const isHostCard = player?.id === currentRoom.hostId;
 
             return (
-              <div key={idx} className={`h-[420px] rounded-3xl border-2 transition-all relative overflow-hidden ${player ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-slate-950/50 border-slate-800 border-dashed flex flex-col items-center justify-center'}`}>
+              <div key={idx} className={`h-[400px] rounded-3xl border-2 transition-all relative overflow-hidden ${player ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-slate-950/50 border-slate-800 border-dashed flex flex-col items-center justify-center'}`}>
                 {player ? (
                   <>
                     <CarVisualizer setup={player.setup} livery={player.livery} lang={lang} track={track} />
@@ -288,29 +272,83 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     );
   }
 
+  // --- RESULTS VIEW ---
+  if (currentRoom && currentRoom.status === 'finished') {
+    const sortedPlayers = [...currentRoom.players].sort((a, b) => (a.finishTime || 999) - (b.finishTime || 999));
+
+    return (
+      <div className="max-w-4xl mx-auto mt-10 animate-fade-in">
+        <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-10 shadow-2xl overflow-hidden relative">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-yellow-500 to-green-500" />
+
+          <div className="flex flex-col items-center mb-10">
+            <Trophy size={64} className="text-yellow-500 mb-4 animate-bounce" />
+            <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Grand Prix Results</h2>
+            <p className="text-slate-500 font-bold uppercase tracking-widest mt-2">{TRACKS.find(t => t.id === currentRoom.trackId)?.name[lang]}</p>
+          </div>
+
+          <div className="space-y-4 mb-10">
+            {sortedPlayers.map((p, i) => (
+              <div key={p.id} className={`flex items-center justify-between p-6 rounded-2xl border-2 transition-all ${i === 0 ? 'bg-yellow-500/10 border-yellow-500 shadow-lg shadow-yellow-500/20' : 'bg-slate-950 border-slate-800'}`}>
+                <div className="flex items-center gap-6">
+                  <span className={`text-2xl font-black italic ${i === 0 ? 'text-yellow-500' : 'text-slate-600'}`}>P{i + 1}</span>
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-slate-700" style={{ backgroundColor: p.team?.color }}>
+                    {p.team ? <img src={p.team.logo} className="w-8 h-8 object-contain" /> : <UserCircle size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white uppercase">{p.nickname}</h3>
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{p.team?.name[lang] || 'Independent'}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-mono font-black text-white">{p.finishTime ? `${p.finishTime}s` : 'DNF'}</div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{i === 0 ? 'WINNER' : `+${(p.finishTime - sortedPlayers[0].finishTime).toFixed(3)}s`}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-center">
+            <button
+              onClick={leaveRoom}
+              className="bg-white text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl active:scale-95"
+            >
+              Back to Lobby
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- LOBBY VIEW ---
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in mb-20">
+    <div className="max-w-6xl mx-auto animate-fade-in mb-20 px-4">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
         <div>
           <div className="flex items-center gap-4 mb-2">
             <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter flex items-center gap-3">
               <Users className="text-red-600" size={36} /> {t.lobby}
             </h2>
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${isServerOnline ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${isServerOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              {isServerOnline ? t.serverOnline : t.serverOffline}
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${isConnected ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              {isConnected ? "ONLINE" : "OFFLINE"}
             </div>
           </div>
-          <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.3em] border-l-2 border-red-600 pl-3">
-            드라이버: {nickname} | 글로벌 패독 네트워크 V3.1
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.3em] border-l-2 border-red-600 pl-3">
+              드라이버: {nickname}
+            </p>
+            <button onClick={resetNickname} className="text-[9px] text-slate-400 hover:text-white underline font-black uppercase tracking-tighter">
+              [CHANGE]
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-4 w-full md:w-auto">
           <button
-            onClick={() => refreshLobby()}
-            disabled={isLoading}
-            className={`p-4 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-all border border-slate-700 ${isLoading ? 'animate-spin text-red-500' : ''}`}
+            onClick={() => socket.emit('getLobby')}
+            className="p-4 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-all border border-slate-700"
             title={t.refresh}
           >
             <RotateCw size={20} />
@@ -324,7 +362,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
         </div>
       </div>
 
-      {rooms.length === 0 && !isLoading ? (
+      {rooms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 bg-slate-900/30 border-2 border-dashed border-slate-800 rounded-3xl animate-pulse-slow">
           <div className="bg-slate-800/50 p-10 rounded-full mb-6 border border-slate-700">
             <WifiOff size={64} className="text-slate-700" />
@@ -333,11 +371,11 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
             활성화된 패독이 없습니다
           </p>
           <p className="text-slate-600 text-xs text-center max-w-xs font-medium">
-            첫 번째 패독 세션을 열어 전 세계 엔지니어들과 연결해보세요.
+            Make the first room and wait for challengers!
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-20">
           {rooms.map(room => (
             <div key={room.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-7 hover:border-red-500/50 transition-all group relative overflow-hidden flex flex-col h-full shadow-lg hover:shadow-2xl">
               <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-10 transition-opacity">
@@ -345,7 +383,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
               </div>
               <div className="flex justify-between items-start mb-8">
                 <div className="flex flex-col gap-1">
-                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em] shadow-[0_0_10px_rgba(220,38,38,0.5)] w-fit">글로벌 패독</span>
+                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em] shadow-[0_0_10px_rgba(220,38,38,0.5)] w-fit">RACE ROOM</span>
                   <span className="text-[9px] text-slate-600 font-mono tracking-tighter uppercase">{new Date(room.createdAt).toLocaleTimeString()} 생성됨</span>
                 </div>
                 <div className="flex flex-col items-end">
@@ -356,11 +394,12 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
 
               <h3 className="text-2xl font-black text-white mb-2 italic truncate group-hover:text-red-500 transition-colors">{room.name}</h3>
               <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-8 border-l-2 border-red-500 pl-3">
-                {TRACKS.find(t => t.id === room.trackId)?.name[lang] || room.trackId}
+                {/* Track ID might be string initially if not synced perfectly, handle gracefully */}
+                {room.trackId}
               </p>
 
               <div className="flex -space-x-3 mb-10 mt-auto">
-                {room.players.map((p, i) => (
+                {room.players.map((p: any, i: number) => (
                   <div
                     key={i}
                     className="w-12 h-12 rounded-full bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-xs font-black text-white shadow-xl overflow-hidden relative group/avatar"
@@ -377,15 +416,10 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                     )}
                   </div>
                 ))}
-                {Array.from({ length: 4 - room.players.length }).map((_, i) => (
-                  <div key={i} className="w-12 h-12 rounded-full bg-slate-950 border-4 border-slate-900 border-dashed flex items-center justify-center text-slate-800">
-                    <Users size={14} />
-                  </div>
-                ))}
               </div>
 
               <button
-                onClick={() => joinRoom(room)}
+                onClick={() => joinRoom(room.id)}
                 className="w-full bg-slate-800 group-hover:bg-red-600 py-5 rounded-2xl text-white font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all group-hover:shadow-[0_0_20px_rgba(220,38,38,0.4)] transform group-hover:-translate-y-1"
               >
                 <LogIn size={18} /> {t.joinRoom}
@@ -394,22 +428,6 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           ))}
         </div>
       )}
-
-      {isLoading && rooms.length === 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-72 bg-slate-900/50 border border-slate-800 rounded-3xl animate-pulse" />
-          ))}
-        </div>
-      )}
-
-      {/* Connectivity Helper */}
-      <div className="mt-12 p-4 bg-slate-900/30 rounded-xl border border-slate-800 text-center">
-        <p className="text-[10px] text-slate-600 font-medium uppercase tracking-[0.2em]">
-          <Wifi size={10} className="inline mr-1 text-green-500" />
-          Telemetry Shared via Global Stratos Network V3.1 - End-to-End Encrypted
-        </p>
-      </div>
     </div>
   );
 };
