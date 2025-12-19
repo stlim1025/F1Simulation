@@ -374,6 +374,7 @@ export const DRIVERS: Driver[] = [
   // Red Bull
   { id: 'verstappen', name: { ko: '막스 베르스타펜', en: 'Max Verstappen' }, teamId: 'redbull', number: 1, photo: '/src/images/drivers/max_verstappen.png', skill: 1.0, consistency: 0.99 },
   { id: 'hadjar', name: { ko: '아이작 하자르', en: 'Isack Hadjar' }, teamId: 'redbull', number: 6, photo: '/src/images/drivers/isack_hadjar.png', skill: 0.88, consistency: 0.82 },
+  { id: 'Min Quim', name: { ko: '퀌 밍궈', en: 'Min Quim' }, teamId: 'redbull', number: 9, photo: '/src/images/drivers/min_quim.jpg', skill: 0.83, consistency: 0.87 },
 
   // Mercedes
   { id: 'russell', name: { ko: '조지 러셀', en: 'George Russell' }, teamId: 'mercedes', number: 63, photo: '/src/images/drivers/george_russell.png', skill: 0.96, consistency: 0.93 },
@@ -386,6 +387,7 @@ export const DRIVERS: Driver[] = [
   // Williams
   { id: 'albon', name: { ko: '알렉산더 알본', en: 'Alex Albon' }, teamId: 'williams', number: 23, photo: '/src/images/drivers/alex_albon.png', skill: 0.92, consistency: 0.90 },
   { id: 'sainz', name: { ko: '카를로스 사인츠', en: 'Carlos Sainz' }, teamId: 'williams', number: 55, photo: '/src/images/drivers/carlos_sainz.png', skill: 0.95, consistency: 0.94 },
+  { id: 'Changtani', name: { ko: '창타니 쇼헤이', en: 'Shohei Changtani' }, teamId: 'williams', number: 17, photo: '/src/images/drivers/Shohei Changtani.png', skill: 0.85, consistency: 0.80 },
 
   // Alpine
   { id: 'gasly', name: { ko: '피에르 가슬리', en: 'Pierre Gasly' }, teamId: 'alpine', number: 10, photo: '/src/images/drivers/pierre_gasly.png', skill: 0.91, consistency: 0.90 },
