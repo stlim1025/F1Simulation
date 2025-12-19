@@ -22,7 +22,7 @@ const SOCKET_URL = window.location.hostname === 'localhost'
 const socket: Socket = io(SOCKET_URL, {
   autoConnect: false,
   reconnection: true,
-  path: window.location.hostname === 'localhost' ? undefined : '/socket.io'
+  transports: ['polling', 'websocket'], // Nginx 프록시 호환성을 위해 polling 우선 시도 가능
 });
 
 const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {

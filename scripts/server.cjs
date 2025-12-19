@@ -11,6 +11,7 @@ const server = http.createServer(app);
 
 app.use(cors());
 app.use(express.json());
+app.set('trust proxy', 1); // Nginx 프록시 신뢰 설정
 
 const io = new Server(server, {
   cors: { origin: "*" } // Allow all origins for dev
@@ -41,7 +42,11 @@ if (fs.existsSync(DB_FILE)) {
 
 // Save local DB helper
 const saveLocalDb = () => {
-  fs.writeFileSync(DB_FILE, JSON.stringify(localDb, null, 2));
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(localDb, null, 2));
+  } catch (err) {
+    console.error('[DB] ❌ Failed to save local DB file. Check folder permissions:', err.message);
+  }
 };
 
 // Initialize Postgres
@@ -173,6 +178,7 @@ app.post('/api/posts', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
+      console.error('[API] ❌ Post creation error:', err.message);
       res.status(500).json({ error: err.message });
     }
   } else {
@@ -203,6 +209,7 @@ app.post('/api/comments', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
+      console.error('[API] ❌ Comment creation error:', err.message);
       res.status(500).json({ error: err.message });
     }
   } else {
