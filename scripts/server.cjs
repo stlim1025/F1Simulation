@@ -13,6 +13,12 @@ app.use(cors());
 app.use(express.json());
 app.set('trust proxy', 1); // Nginx 프록시 신뢰 설정
 
+// Security Headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+
 const io = new Server(server, {
   cors: { origin: "*" } // Allow all origins for dev
 });
@@ -104,6 +110,15 @@ try {
 
 // --- API ROUTES ---
 
+// Health Check & Status
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'online',
+    dbType: dbType,
+    time: new Date().toISOString()
+  });
+});
+
 // GET All Posts
 app.get('/api/posts', async (req, res) => {
   const { teamId } = req.query;
@@ -121,7 +136,8 @@ app.get('/api/posts', async (req, res) => {
       const result = await pool.query(query, params);
       res.json(result.rows);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      console.error(`[DB] ❌ GET /api/posts error (dbType: ${dbType}):`, err);
+      res.status(500).json({ error: 'Database query failed', message: err.message });
     }
   } else {
     // Local DB
@@ -152,7 +168,8 @@ app.get('/api/posts/:id', async (req, res) => {
         comments: commentsRes.rows
       });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      console.error(`[DB] ❌ GET /api/posts/${id} error:`, err);
+      res.status(500).json({ error: 'Database query failed', message: err.message });
     }
   } else {
     const post = localDb.posts.find(p => p.id == id); // == for string/number match

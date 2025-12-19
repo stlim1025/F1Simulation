@@ -31,10 +31,13 @@ async function migrate() {
         client = await pool.connect();
         console.log('[Migration] Connected to PostgreSQL');
 
-        // 테이블 생성 (없으면)
-        console.log('[Migration] Creating tables if not exist...');
+        // 테이블 삭제 및 생성 (최신 스키마 반영 보장)
+        console.log('[Migration] Dropping and recreating tables to ensure schema sync...');
         await client.query(`
-      CREATE TABLE IF NOT EXISTS posts (
+      DROP TABLE IF EXISTS comments CASCADE;
+      DROP TABLE IF EXISTS posts CASCADE;
+
+      CREATE TABLE posts (
         id SERIAL PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         content TEXT,
@@ -43,7 +46,8 @@ async function migrate() {
         views INT DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-      CREATE TABLE IF NOT EXISTS comments (
+
+      CREATE TABLE comments (
         id SERIAL PRIMARY KEY,
         post_id INT REFERENCES posts(id) ON DELETE CASCADE,
         content TEXT,
