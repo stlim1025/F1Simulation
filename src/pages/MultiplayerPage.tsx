@@ -16,7 +16,7 @@ interface Props {
 // Initialize Socket outside component to prevent reconnects
 const SOCKET_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3001'
-  : `http://${window.location.hostname}:3001`;
+  : `${window.location.protocol}//${window.location.hostname}:3001`;
 
 const socket: Socket = io(SOCKET_URL, {
   autoConnect: false,
