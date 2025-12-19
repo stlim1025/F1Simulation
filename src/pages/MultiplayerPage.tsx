@@ -14,7 +14,11 @@ interface Props {
 }
 
 // Initialize Socket outside component to prevent reconnects
-const socket: Socket = io('http://localhost:3001', {
+const SOCKET_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:3001'
+  : `http://${window.location.hostname}:3001`;
+
+const socket: Socket = io(SOCKET_URL, {
   autoConnect: false,
   reconnection: true,
 });
