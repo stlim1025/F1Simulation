@@ -14,6 +14,7 @@ import MultiplayerPage from './pages/MultiplayerPage';
 import BoardPage from './pages/BoardPage';
 import { getRaceEngineerFeedback } from './services/geminiService';
 import { Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, Cpu, Globe, Palette, Users, User, MessageSquare } from 'lucide-react';
+import { socket } from './services/socket';
 
 const App: React.FC = () => {
     const [view, setView] = useState<'solo' | 'multi' | 'board'>('solo');
@@ -41,6 +42,13 @@ const App: React.FC = () => {
             resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }, [simResult]);
+
+    // Socket Connection for Logging/Persistence
+    useEffect(() => {
+        if (!socket.connected) {
+            socket.connect();
+        }
+    }, []);
 
     // Helper to format seconds into MM:SS.mmm
     const formatTime = (seconds: number): string => {
@@ -220,6 +228,16 @@ const App: React.FC = () => {
             ...resultWithoutAI,
             aiAnalysis: aiFeedback
         };
+
+        // Save to DB (Solo Record)
+        socket.emit('race:save_solo', {
+            nickname: localStorage.getItem('f1_nickname') || 'Guest',
+            teamId: selectedTeam?.id,
+            driverId: selectedDriver?.id,
+            trackId: selectedTrack.id,
+            setup: setup,
+            lapTime: finalLapTime
+        });
 
         setSimResult(finalResult);
         setHistory(prev => [...prev, finalResult]);

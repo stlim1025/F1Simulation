@@ -33,7 +33,11 @@ const DB_FILE = path.join(__dirname, 'db_fallback.json');
 // In-memory data store
 let localDb = {
   posts: [],
-  comments: []
+  comments: [],
+  access_logs: [],
+  chat_messages: [],
+  simulation_records: [],
+  race_records: []
 };
 
 // Load local DB if exists
@@ -87,6 +91,43 @@ try {
           post_id INT REFERENCES posts(id) ON DELETE CASCADE,
           content TEXT,
           author VARCHAR(100),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS access_logs (
+          id SERIAL PRIMARY KEY,
+          socket_id VARCHAR(50),
+          nickname VARCHAR(50),
+          ip VARCHAR(50),
+          user_agent TEXT,
+          action VARCHAR(50),
+          room_id VARCHAR(50),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          id SERIAL PRIMARY KEY,
+          room_id VARCHAR(50),
+          nickname VARCHAR(50),
+          team_id VARCHAR(50),
+          content TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS simulation_records (
+          id SERIAL PRIMARY KEY,
+          nickname VARCHAR(50),
+          team_id VARCHAR(100),
+          driver_id VARCHAR(100),
+          track_id VARCHAR(100),
+          setup JSONB,
+          lap_time FLOAT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS race_records (
+          id SERIAL PRIMARY KEY,
+          room_id VARCHAR(50),
+          nickname VARCHAR(50),
+          team_id VARCHAR(100),
+          track_id VARCHAR(100),
+          lap_time FLOAT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `).then(() => {
@@ -241,29 +282,125 @@ app.post('/api/comments', async (req, res) => {
 });
 
 
-// --- REAL-TIME MULTIPLAYER (Socket.io) ---
+// --- HELPER FOR DB LOGGING ---
+const logAccess = async (socket, action, nickname = null, roomId = null) => {
+  const ip = socket.handshake.address || socket.request.connection.remoteAddress || 'unknown';
+  const ua = socket.handshake.headers['user-agent'] || 'unknown';
+  const socketId = socket.id;
 
-const logs = []; // In-memory connection logs
+  if (dbType === 'postgres') {
+    try {
+      await pool.query(
+        'INSERT INTO access_logs (socket_id, nickname, ip, user_agent, action, room_id) VALUES ($1, $2, $3, $4, $5, $6)',
+        [socketId, nickname, ip, ua, action, roomId]
+      );
+    } catch (err) {
+      console.error('[DB] Failed to log access:', err.message);
+    }
+  } else {
+    localDb.access_logs.push({
+      id: localDb.access_logs.length + 1,
+      socket_id: socketId,
+      nickname,
+      ip,
+      user_agent: ua,
+      action,
+      room_id: roomId,
+      created_at: new Date().toISOString()
+    });
+    saveLocalDb();
+  }
+};
+
+const saveChatMessage = async (roomId, nickname, teamId, content) => {
+  if (dbType === 'postgres') {
+    try {
+      await pool.query(
+        'INSERT INTO chat_messages (room_id, nickname, team_id, content) VALUES ($1, $2, $3, $4)',
+        [roomId, nickname, teamId, content]
+      );
+    } catch (err) {
+      console.error('[DB] Failed to save chat:', err.message);
+    }
+  } else {
+    localDb.chat_messages.push({
+      id: localDb.chat_messages.length + 1,
+      room_id: roomId,
+      nickname,
+      team_id: teamId,
+      content,
+      created_at: new Date().toISOString()
+    });
+    saveLocalDb();
+  }
+};
+
+const saveSimulationRecord = async (data) => {
+  const { nickname, teamId, driverId, trackId, setup, lapTime } = data;
+  if (dbType === 'postgres') {
+    try {
+      await pool.query(
+        'INSERT INTO simulation_records (nickname, team_id, driver_id, track_id, setup, lap_time) VALUES ($1, $2, $3, $4, $5, $6)',
+        [nickname, teamId, driverId, trackId, setup, lapTime]
+      );
+    } catch (err) {
+      console.error('[DB] Failed to save solo record:', err.message);
+    }
+  } else {
+    localDb.simulation_records.push({
+      id: localDb.simulation_records.length + 1,
+      nickname,
+      team_id: teamId,
+      driver_id: driverId,
+      track_id: trackId,
+      setup,
+      lap_time: lapTime,
+      created_at: new Date().toISOString()
+    });
+    saveLocalDb();
+  }
+};
+
+const saveRaceRecord = async (data) => {
+  const { roomId, nickname, teamId, trackId, lapTime } = data;
+  if (dbType === 'postgres') {
+    try {
+      await pool.query(
+        'INSERT INTO race_records (room_id, nickname, team_id, track_id, lap_time) VALUES ($1, $2, $3, $4, $5)',
+        [roomId, nickname, teamId, trackId, lapTime]
+      );
+    } catch (err) {
+      console.error('[DB] Failed to save race record:', err.message);
+    }
+  } else {
+    localDb.race_records.push({
+      id: localDb.race_records.length + 1,
+      room_id: roomId,
+      nickname,
+      team_id: teamId,
+      track_id: trackId,
+      lap_time: lapTime,
+      created_at: new Date().toISOString()
+    });
+    saveLocalDb();
+  }
+};
+
+
+// --- REAL-TIME MULTIPLAYER (Socket.io) ---
 
 const rooms = new Map(); // roomId -> Room Object
 
 io.on('connection', (socket) => {
+  console.log(`[Socket] Connected: ${socket.id}`);
+  logAccess(socket, 'connect');
+
   // 1. Lobby & Room Management
   socket.on('getLobby', () => {
     socket.emit('lobbyUpdate', Array.from(rooms.values()));
   });
 
   socket.on('createRoom', ({ name, trackId, player }) => {
-    // Log connection info
-    logs.push({
-      id: socket.id,
-      nickname: player.nickname,
-      ip: clientIp,
-      ua: userAgent,
-      time: new Date().toISOString(),
-      action: 'create_room'
-    });
-
     const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
     const newRoom = {
       id: roomId,
@@ -272,10 +409,14 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 0, finished: false }],
       status: 'lobby',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      chatHistory: [] // 채팅 내역 저장용
     };
     rooms.set(roomId, newRoom);
     socket.join(roomId);
+
+    logAccess(socket, 'create_room', player.nickname, roomId);
+
     socket.emit('roomJoined', newRoom);
     io.emit('lobbyUpdate', Array.from(rooms.values()));
     console.log(`[Room] Created ${roomId} by ${player.nickname}`);
@@ -286,34 +427,82 @@ io.on('connection', (socket) => {
     if (!room) return socket.emit('error', 'Room not found');
     if (room.players.length >= 4) return socket.emit('error', 'Room full');
 
-    if (room.players.some(p => p.nickname === player.nickname)) {
-      // Simple nickname dup check
-      // return socket.emit('error', 'Nickname already taken in this room');
-    }
-
-    // Log connection info
-    logs.push({
-      id: socket.id,
-      nickname: player.nickname,
-      ip: clientIp,
-      ua: userAgent,
-      time: new Date().toISOString(),
-      action: 'join_room',
-      roomId
-    });
-
     const newPlayer = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 0, finished: false };
     room.players.push(newPlayer);
     socket.join(roomId);
 
+    logAccess(socket, 'join_room', player.nickname, roomId);
+
     io.to(roomId).emit('roomUpdate', room);
     socket.emit('roomJoined', room);
     io.emit('lobbyUpdate', Array.from(rooms.values()));
+
+    // 현재 방의 채팅 내역만 전송 (최근 50개)
+    if (room.chatHistory && room.chatHistory.length > 0) {
+      socket.emit('chat:history', room.chatHistory);
+    } else {
+      // 메모리에 없을 경우 DB에서 로드 (선택 사항, 여기서는 우선 메모리 기반)
+      socket.emit('chat:history', []);
+    }
+
     console.log(`[Room] ${player.nickname} joined ${roomId}`);
+  });
+
+  socket.on('rejoinRoom', ({ roomId, player }) => {
+    const room = rooms.get(roomId);
+    if (!room) return socket.emit('error', 'Room not found for rejoin');
+
+    // 기존 플레이어가 있는지 확인 (ID 또는 닉네임 기준)
+    let p = room.players.find(pl => pl.id === socket.id || pl.nickname === player.nickname);
+
+    if (p) {
+      p.id = socket.id; // 소켓 ID 갱신
+      // 최신 셋업 정보 반영
+      p.setup = player.setup;
+      p.livery = player.livery;
+    } else {
+      if (room.players.length >= 4) return socket.emit('error', 'Room full');
+      p = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 0, finished: false };
+      room.players.push(p);
+    }
+
+    socket.join(roomId);
+    socket.emit('roomJoined', room);
+    io.to(roomId).emit('roomUpdate', room);
+
+    if (room.chatHistory && room.chatHistory.length > 0) {
+      socket.emit('chat:history', room.chatHistory);
+    }
+
+    console.log(`[Room] ${player.nickname} rejoined ${roomId}`);
   });
 
   socket.on('leaveRoom', () => {
     handleDisconnect(socket);
+  });
+
+  socket.on('room:changeTrack', ({ roomId, trackId }) => {
+    const room = rooms.get(roomId);
+    if (room && room.hostId === socket.id) {
+      room.trackId = trackId;
+      io.to(roomId).emit('roomUpdate', room);
+      io.emit('lobbyUpdate', Array.from(rooms.values()));
+    }
+  });
+
+  socket.on('room:reset', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (room && room.hostId === socket.id) {
+      room.status = 'lobby';
+      room.players.forEach(p => {
+        p.isReady = false;
+        p.finished = false;
+        p.finishTime = null;
+      });
+      io.to(roomId).emit('roomUpdate', room);
+      io.emit('lobbyUpdate', Array.from(rooms.values()));
+      console.log(`[Room] Reset ${roomId} to lobby by host`);
+    }
   });
 
   socket.on('updateReady', ({ roomId, isReady }) => {
@@ -360,13 +549,23 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('finishRace', ({ roomId, time }) => {
+  socket.on('finishRace', async ({ roomId, time }) => {
     const room = rooms.get(roomId);
     if (room) {
       const p = room.players.find(p => p.id === socket.id);
       if (p && !p.finished) {
         p.finished = true;
         p.finishTime = time;
+
+        // Save race record to DB
+        saveRaceRecord({
+          roomId,
+          nickname: p.nickname,
+          teamId: p.team?.id,
+          trackId: room.trackId,
+          lapTime: parseFloat(time)
+        });
+
         io.to(roomId).emit('playerFinished', { id: socket.id, time, nickname: p.nickname });
 
         // Check if all finished
@@ -380,7 +579,33 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    logAccess(socket, 'disconnect');
     handleDisconnect(socket);
+  });
+
+  // 3. Chat System
+  socket.on('chat:send', ({ roomId, nickname, teamId, content }) => {
+    if (!roomId || !content) return;
+    saveChatMessage(roomId, nickname, teamId, content);
+    const msg = {
+      nickname,
+      teamId,
+      content,
+      time: new Date().toISOString()
+    };
+    const room = rooms.get(roomId);
+    if (room) {
+      if (!room.chatHistory) room.chatHistory = [];
+      room.chatHistory.push(msg);
+      // 최근 50개만 유지 (메모리 관리용)
+      if (room.chatHistory.length > 50) room.chatHistory.shift();
+    }
+    io.to(roomId).emit('chat:message', msg);
+  });
+
+  // 4. Data Persistence (Solo)
+  socket.on('race:save_solo', (data) => {
+    saveSimulationRecord(data);
   });
 });
 
@@ -401,6 +626,7 @@ function handleDisconnect(socket) {
         }
         io.to(roomId).emit('roomUpdate', room);
       }
+      socket.leave(roomId); // Explicitly leave the socket room
       io.emit('lobbyUpdate', Array.from(rooms.values()));
       break;
     }

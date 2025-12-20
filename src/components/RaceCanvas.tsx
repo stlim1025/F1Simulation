@@ -15,9 +15,16 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [players, setPlayers] = useState<MPPlayer[]>(room.players);
     const [isFinished, setIsFinished] = useState(false);
+    const isFinishedRef = useRef(false);
     const [myResult, setMyResult] = useState<number | null>(null);
+    const [trackImage, setTrackImage] = useState<HTMLImageElement | null>(null);
+
+    const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0];
 
     // Game Loop Refs (to avoid stale closures)
+    const paramsRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, vw: 1000, vh: 1000, zoom: 2.0 });
+    const trackPathRef = useRef<Path2D>(new Path2D(track.svgPath));
+    const startMatchRef = useRef<RegExpMatchArray | null>(track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i));
     const playersRef = useRef<MPPlayer[]>(room.players);
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
@@ -31,17 +38,68 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     });
 
     // Physics Constants
-    const ACCEL = 0.2;
-    const MAX_SPEED = 12; // Pixels per frame
+    const ACCEL = 0.08; // 추가 하향 (기존 0.12)
+    const MAX_SPEED = 2.5; // 추가 하향 (기존 3)
     const FRICTION = 0.96;
-    const TURN_SPEED = 0.08;
+    const TURN_SPEED = 0.03; // 추가 하향 (기존 0.04)
+    const TRACK_WIDTH = 80;
 
-    const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0];
+    useEffect(() => {
+        const img = new Image();
+        img.src = track.mapUrl;
+        img.onload = () => {
+            setTrackImage(img);
+
+            // Calculate Scaling
+            const vb = track.viewBox.split(' ').map(Number);
+            const vw = vb[2];
+            const vh = vb[3];
+            const s = Math.min(1000 / vw, 1000 / vh) * 0.9;
+            paramsRef.current = {
+                scale: s,
+                offsetX: (1000 - vw * s) / 2,
+                offsetY: (1000 - vh * s) / 2,
+                vw,
+                vh,
+                zoom: 2.0
+            };
+
+            // Update Track Refs
+            trackPathRef.current = new Path2D(track.svgPath);
+            startMatchRef.current = track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i);
+
+            // RESET RACE STATES on track change/load
+            gameState.current.lastCheckpoint = 0;
+            gameState.current.speed = 0;
+            isFinishedRef.current = false;
+            setIsFinished(false);
+
+            // Set Initial Position whenever track changes
+            const startMatch = startMatchRef.current;
+            if (startMatch) {
+                const ox = paramsRef.current.offsetX;
+                const oy = paramsRef.current.offsetY;
+                gameState.current.x = parseFloat(startMatch[1]) * s + ox;
+                gameState.current.y = parseFloat(startMatch[2]) * s + oy;
+                gameState.current.rotation = 0;
+            }
+        };
+    }, [track.id, track.mapUrl]);
 
     useEffect(() => {
         // Input Listeners
-        const handleKeyDown = (e: KeyboardEvent) => keysPressed.current[e.code] = true;
-        const handleKeyUp = (e: KeyboardEvent) => keysPressed.current[e.code] = false;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+                e.preventDefault();
+            }
+            keysPressed.current[e.code] = true;
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+                e.preventDefault();
+            }
+            keysPressed.current[e.code] = false;
+        };
 
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
@@ -51,49 +109,90 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         const ctx = canvas?.getContext('2d');
         let animationFrameId: number;
 
-        // Path Parsing for Collision/Drawing
-        const trackPath = new Path2D(track.svgPath);
-
-        // Initial Position
-        const startMatch = track.svgPath.match(/M\s+(\d+)\s+(\d+)/);
-        if (startMatch) {
-            gameState.current.x = parseInt(startMatch[1]);
-            gameState.current.y = parseInt(startMatch[2]);
-            // Orient car along the first path segment if possible
-        }
-
         const startTime = Date.now();
 
         const render = () => {
             if (!ctx || !canvas) return;
 
             // 1. Physics Update
-            if (!isFinished) {
+            if (!isFinishedRef.current) {
+                // Movement
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL;
                 if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL;
 
+                // Friction
                 gameState.current.speed *= FRICTION;
 
-                if (Math.abs(gameState.current.speed) > 0.1) {
-                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= TURN_SPEED;
-                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += TURN_SPEED;
+                // Rotation (Only if moving)
+                if (Math.abs(gameState.current.speed) > 0.05) {
+                    const rotDir = gameState.current.speed > 0 ? 1 : -1;
+                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= TURN_SPEED * rotDir;
+                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += TURN_SPEED * rotDir;
                 }
 
+                // Speed Caps
                 gameState.current.speed = Math.max(-MAX_SPEED / 2, Math.min(MAX_SPEED, gameState.current.speed));
 
-                gameState.current.x += Math.sin(gameState.current.rotation) * gameState.current.speed;
-                gameState.current.y -= Math.cos(gameState.current.rotation) * gameState.current.speed;
+                const nextX = gameState.current.x + Math.sin(gameState.current.rotation) * gameState.current.speed;
+                const nextY = gameState.current.y - Math.cos(gameState.current.rotation) * gameState.current.speed;
+
+                // 2. Map Boundary Check (Circular wall at center 500,500 with radius 480)
+                const distFromCenter = Math.sqrt(Math.pow(nextX - 500, 2) + Math.pow(nextY - 500, 2));
+                if (distFromCenter > 480) {
+                    // Strong wall collision: prevent moving outside the circle
+                    const angle = Math.atan2(nextY - 500, nextX - 500);
+                    gameState.current.x = 500 + 480 * Math.cos(angle);
+                    gameState.current.y = 500 + 480 * Math.sin(angle);
+                    gameState.current.speed = 0; // Stop movement completely
+                    // Do not return, allow other physics to apply
+                } else {
+                    gameState.current.x = nextX;
+                    gameState.current.y = nextY;
+                }
+
+
+                // 3. Collision / Track Boundary Check
+                if (ctx) {
+                    const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
+                    const trackPath = trackPathRef.current;
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.translate(ox, oy);
+                    ctx.scale(s, s);
+                    ctx.lineWidth = 100; // 물리 충돌 너비 (도로폭 반영)
+
+                    const isOnTrack = ctx.isPointInStroke(trackPath, gameState.current.x, gameState.current.y);
+                    ctx.restore();
+
+                    // gameState.current.x = nextX; // Moved above to handle circular wall
+                    // gameState.current.y = nextY; // Moved above to handle circular wall
+
+                    if (!isOnTrack) {
+                        gameState.current.speed *= 0.85;
+                        const GRASS_MAX_SPEED = MAX_SPEED * 0.3;
+                        if (Math.abs(gameState.current.speed) > GRASS_MAX_SPEED) {
+                            gameState.current.speed = GRASS_MAX_SPEED * (gameState.current.speed > 0 ? 1 : -1);
+                        }
+                    }
+                }
 
                 // 2. Finish Line Check (1 lap race for now)
-                // Use the starting 'M' point as the finish line trigger
+                const startMatch = startMatchRef.current;
                 if (startMatch) {
-                    const sx = parseInt(startMatch[1]);
-                    const sy = parseInt(startMatch[2]);
+                    const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
+                    const sx = parseFloat(startMatch[1]) * s + ox;
+                    const sy = parseFloat(startMatch[2]) * s + oy;
                     const distToStart = Math.sqrt(Math.pow(gameState.current.x - sx, 2) + Math.pow(gameState.current.y - sy, 2));
+                    // Checkpoint logic to prevent cheats (Only after 3 seconds to avoid initial jump bug)
+                    const raceTime = Date.now() - startTime;
+                    if (distToStart > 450 && raceTime > 3000) {
+                        gameState.current.lastCheckpoint = 1; // Passed halfway mark
+                    }
 
-                    // Simple gate check: must be moving and near the start after some time
-                    if (distToStart < 40 && (Date.now() - startTime) > 5000 && !isFinished) {
-                        const finalTime = ((Date.now() - startTime) / 1000).toFixed(3);
+                    // Finish line logic (Radius increased to 100 to avoid missing the line)
+                    if (distToStart < 100 && gameState.current.lastCheckpoint === 1 && !isFinishedRef.current && raceTime > 5000) {
+                        const finalTime = (raceTime / 1000).toFixed(3);
+                        isFinishedRef.current = true;
                         setIsFinished(true);
                         setMyResult(parseFloat(finalTime));
                         socket.emit('finishRace', { roomId: room.id, time: finalTime });
@@ -102,7 +201,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             }
 
             // 3. Network Sync
-            if (socket.connected && !isFinished) {
+            if (socket.connected && !isFinishedRef.current) {
                 socket.emit('playerMove', {
                     roomId: room.id,
                     x: gameState.current.x,
@@ -117,39 +216,61 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // Track Background (Grass)
-            ctx.fillStyle = '#064e3b';
+            ctx.fillStyle = '#14532d';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Track Road
-            ctx.strokeStyle = '#334155';
-            ctx.lineWidth = 80;
-            ctx.stroke(trackPath);
+            ctx.save();
+            // --- DYNAMIC CHASE CAMERA (ROTATING TRACK) ---
+            // 1. Position on screen (Center 500,500)
+            const { scale, offsetX, offsetY, zoom } = paramsRef.current;
+            ctx.translate(500, 500);
 
-            // Start/Finish Line
+            // 2. Rotate the world in the opposite direction of the car
+            // So the car always points "Up" (0 rad) on screen
+            ctx.rotate(-gameState.current.rotation);
+
+            // 3. Zoom
+            ctx.scale(zoom, zoom);
+
+            // 4. Translate back to car world coordinates
+            ctx.translate(-gameState.current.x, -gameState.current.y);
+            // -------------------------------------
+
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+
+            // 1. Draw Map
+            if (trackImage) {
+                ctx.drawImage(trackImage, 0, 0, paramsRef.current.vw, paramsRef.current.vh);
+            } else {
+                ctx.strokeStyle = '#334155';
+                ctx.lineWidth = 120; // 가시성 증대를 위해 두께 상향 (기존 80)
+                ctx.stroke(trackPathRef.current);
+            }
+
+            // Start/Finish Line Indicator
+            const startMatch = startMatchRef.current;
             if (startMatch) {
                 ctx.save();
-                ctx.translate(parseInt(startMatch[1]), parseInt(startMatch[2]));
-                ctx.rotate(0); // Needs alignment with track
+                ctx.translate(parseFloat(startMatch[1]), parseFloat(startMatch[2]));
                 ctx.fillStyle = '#fff';
-                ctx.fillRect(-40, -5, 80, 10);
-                // Checkered pattern
-                for (let i = 0; i < 8; i++) {
-                    ctx.fillStyle = i % 2 === 0 ? '#000' : '#fff';
-                    ctx.fillRect(-40 + i * 10, -5, 10, 5);
-                    ctx.fillStyle = i % 2 === 0 ? '#fff' : '#000';
-                    ctx.fillRect(-40 + i * 10, 0, 10, 5);
-                }
+                ctx.fillRect(-30, -2, 60, 4);
                 ctx.restore();
             }
+            ctx.restore(); // Restore from track space
 
             // Remote Players
             playersRef.current.forEach(p => {
                 if (p.id === meRef.current.id) return;
-                drawCar(ctx, p.x || 0, p.y || 0, p.rotation || 0, p.team?.color || '#888', p.nickname);
+                // Remote players rotate relative to their own world rotation
+                drawCar(ctx, p.x || 0, p.y || 0, p.rotation || 0, p.team?.color || '#888', p.nickname, gameState.current.rotation);
             });
 
-            // Self
-            drawCar(ctx, gameState.current.x, gameState.current.y, gameState.current.rotation, meRef.current.team?.color || '#fff', "YOU");
+            // Self (Drawn at center within the camera view, pointing UP)
+            drawCar(ctx, gameState.current.x, gameState.current.y, gameState.current.rotation, meRef.current.team?.color || '#fff', "YOU", gameState.current.rotation);
+
+            ctx.restore(); // Restore from dynamic camera transformation
 
             animationFrameId = requestAnimationFrame(render);
         };
@@ -183,6 +304,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         socket.on('playerFinished', (data: any) => {
             // Handle finish
             if (data.id === socket.id) {
+                isFinishedRef.current = true;
                 setIsFinished(true);
                 setMyResult(data.time);
             }
@@ -194,7 +316,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         };
     }, []);
 
-    const drawCar = (ctx: CanvasRenderingContext2D, x: number, y: number, rotation: number, color: string, label: string) => {
+    const drawCar = (ctx: CanvasRenderingContext2D, x: number, y: number, rotation: number, color: string, label: string, worldRotation: number = 0) => {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(rotation);
@@ -228,11 +350,16 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
 
         ctx.restore();
 
-        // Label
+        // Label (Counter-rotate to keep it upright based on world rotation)
+        ctx.save();
+        ctx.translate(x, y);
+        // If it's your car, it stays at 0 (upright), if remote, compensate for map rotation
+        ctx.rotate(worldRotation);
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(label, x, y - 25);
+        ctx.fillText(label, 0, -25);
+        ctx.restore();
     };
 
     return (

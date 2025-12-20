@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { Users, Plus, Play, LogIn, UserCircle, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
 import RaceCanvas from '../components/RaceCanvas';
-import { io, Socket } from 'socket.io-client';
+import TrackSelector from '../components/TrackSelector';
+import { socket } from '../services/socket';
 
 interface Props {
   setup: CarSetup;
@@ -13,46 +14,62 @@ interface Props {
   team: Team | null;
 }
 
-// Initialize Socket outside component to prevent reconnects
-// Use port 3001 for local dev, use origin (via Nginx proxy) for production
-const SOCKET_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:3001'
-  : window.location.origin;
-
-const socket: Socket = io(SOCKET_URL, {
-  autoConnect: false,
-  reconnection: true,
-  transports: ['polling', 'websocket'], // Nginx 프록시 호환성을 위해 polling 우선 시도 가능
-});
-
 const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   const t = TRANSLATIONS[lang];
   const [nickname, setNickname] = useState(localStorage.getItem('f1_nickname') || '');
   const [isNickSet, setIsNickSet] = useState(!!nickname);
 
   // Lobby State
-  const [rooms, setRooms] = useState<any[]>([]); // Using 'any' briefly to match server object structure if differs
+  const [rooms, setRooms] = useState<any[]>([]);
   const [currentRoom, setCurrentRoom] = useState<any | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const [isSelectingTrack, setIsSelectingTrack] = useState(false);
   const [myPlayerId, setMyPlayerId] = useState<string>('');
 
+  // Chat State
+  const [chatMessages, setChatMessages] = useState<{ nickname: string, teamId?: string, content: string, time: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (instant = false) => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: instant ? 'auto' : 'smooth'
+      });
+    }
+  };
+
   useEffect(() => {
-    // Socket Sync
+    // 페이지 마운트 또는 뷰 전환 시 최상단으로 스크롤 (로비 점프 방지)
+    if (!currentRoom) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [currentRoom]);
+
+  useEffect(() => {
+    // 메시지가 많아질 때만 실시간 스크롤 시도
+    if (chatMessages.length > 0) {
+      scrollToBottom();
+    }
+  }, [chatMessages]);
+
+  useEffect(() => {
     socket.connect();
 
-    socket.on('connect', () => {
-      setIsConnected(true);
-      setMyPlayerId(socket.id!);
-      socket.emit('getLobby');
-    });
+    const attemptRecovery = () => {
+      const savedRoomId = localStorage.getItem('f1_current_room_id');
+      if (savedRoomId && nickname) {
+        const player = { nickname, setup, livery, team };
+        socket.emit('rejoinRoom', { roomId: savedRoomId, player });
+      } else {
+        socket.emit('getLobby');
+      }
+    };
 
     socket.on('connect_error', () => {
-      setIsConnected(false);
-    });
-
-    socket.on('disconnect', () => {
       setIsConnected(false);
     });
 
@@ -67,57 +84,84 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
 
     socket.on('roomJoined', (room) => {
       setCurrentRoom(room);
+      localStorage.setItem('f1_current_room_id', room.id); // 세션 저장
+      console.log(`[Session] Restored room ${room.id}`);
     });
 
     socket.on('roomUpdate', (room) => {
-      setCurrentRoom(room);
+      // guard: only update if we are still supposed to be in this room
+      setCurrentRoom(prev => {
+        if (!prev || prev.id !== room.id) return prev;
+        return room;
+      });
+      const me = room.players.find((p: any) => p.id === socket.id);
+      if (me) {
+        setMyPlayerId(socket.id!);
+      }
     });
 
     socket.on('raceStarted', (room) => {
-      // Handle Race Start Transition
-      setCurrentRoom(room);
-      alert("RACE STARTING! (Implementation coming next)");
+      setCurrentRoom(prev => {
+        if (!prev || prev.id !== room.id) return prev;
+        return room;
+      });
+    });
+
+    socket.on('chat:message', (msg) => {
+      setChatMessages(prev => [...prev, msg]);
+    });
+
+    socket.on('chat:history', (history) => {
+      setChatMessages(history);
     });
 
     socket.on('error', (msg) => {
       alert(`Error: ${msg}`);
     });
 
+    // 모든 리스너 등록 후 복구 시도
+    if (socket.connected) {
+      setIsConnected(true);
+      setMyPlayerId(socket.id!);
+      attemptRecovery();
+    }
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setMyPlayerId(socket.id!);
+      attemptRecovery();
+    });
+
     return () => {
       socket.off('connect');
+      socket.off('connect_error');
       socket.off('disconnect');
       socket.off('lobbyUpdate');
       socket.off('roomJoined');
       socket.off('roomUpdate');
       socket.off('raceStarted');
+      socket.off('chat:message');
+      socket.off('chat:history');
       socket.off('error');
-      socket.disconnect();
     };
   }, []);
 
-  // Update Setup/Livery dynamically if room is active
   useEffect(() => {
     if (currentRoom && socket.connected) {
       socket.emit('updateSetup', { roomId: currentRoom.id, setup, livery });
     }
-  }, [setup, livery]);
-
+  }, [setup, livery, currentRoom?.id]);
 
   const handleSetNickname = () => {
     if (nickname.trim()) {
       localStorage.setItem('f1_nickname', nickname);
       setIsNickSet(true);
-      if (socket.connected) {
-        // In a real app, we'd emit an update to the server here too
-      }
     }
   };
 
   const resetNickname = () => {
     setIsNickSet(false);
   };
-
-  // ... rest of logic
 
   const createRoom = () => {
     if (!nickname) return;
@@ -132,8 +176,13 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   };
 
   const leaveRoom = () => {
-    socket.emit('leaveRoom');
+    if (currentRoom) {
+      socket.emit('leaveRoom', { roomId: currentRoom.id });
+    }
     setCurrentRoom(null);
+    setChatMessages([]); // 채팅 내역 초기화
+    localStorage.removeItem('f1_current_room_id'); // 세션 삭제
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
   const toggleReady = () => {
@@ -149,6 +198,24 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     socket.emit('startRace', { roomId: currentRoom.id });
   };
 
+  const changeTrack = (trackId: string) => {
+    if (!currentRoom) return;
+    socket.emit('room:changeTrack', { roomId: currentRoom.id, trackId });
+    setIsSelectingTrack(false);
+  };
+
+  const sendChatMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!chatInput.trim() || !currentRoom) return;
+
+    socket.emit('chat:send', {
+      roomId: currentRoom.id,
+      nickname,
+      teamId: team?.id,
+      content: chatInput
+    });
+    setChatInput('');
+  };
 
   if (!isNickSet) {
     return (
@@ -171,6 +238,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           />
           <button
             onClick={handleSetNickname}
+            onKeyDown={(e) => e.key === 'Enter' && handleSetNickname()}
             className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-lg font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)]"
           >
             {t.enterPaddock}
@@ -183,15 +251,78 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   // --- RACING VIEW ---
   if (currentRoom && currentRoom.status === 'racing') {
     const me = currentRoom.players.find((p: any) => p.id === socket.id);
-    if (!me) return <div>Error: Player not found in race</div>;
+    if (!me) return <div className="p-20 text-white">Connecting to race...</div>;
 
     return (
-      <RaceCanvas
-        room={currentRoom}
-        me={me}
-        socket={socket}
-        onLeave={leaveRoom}
-      />
+      <div className="fixed inset-0 z-[150] bg-slate-950 overflow-hidden">
+        <RaceCanvas
+          room={currentRoom}
+          me={me}
+          socket={socket}
+          onLeave={leaveRoom}
+        />
+      </div>
+    );
+  }
+
+  // --- RESULTS VIEW ---
+  if (currentRoom && currentRoom.status === 'finished') {
+    const sortedPlayers = [...currentRoom.players].sort((a, b) => (a.finishTime || 999) - (b.finishTime || 999));
+
+    return (
+      <div className="max-w-4xl mx-auto mt-10 animate-fade-in px-4">
+        <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl overflow-hidden relative">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-yellow-500 to-green-500" />
+
+          <div className="flex flex-col items-center mb-10 text-center">
+            <Trophy size={64} className="text-yellow-500 mb-4 animate-bounce" />
+            <h2 className="text-3xl md:text-4xl font-black text-white italic uppercase tracking-tighter">Grand Prix Results</h2>
+            <p className="text-slate-500 font-bold uppercase tracking-widest mt-2">{TRACKS.find(t => t.id === currentRoom.trackId)?.name[lang]}</p>
+          </div>
+
+          <div className="space-y-4 mb-10">
+            {sortedPlayers.map((p, i) => (
+              <div key={p.id} className={`flex items-center justify-between p-4 md:p-6 rounded-2xl border-2 transition-all ${i === 0 ? 'bg-yellow-500/10 border-yellow-500 shadow-lg shadow-yellow-500/20' : 'bg-slate-950 border-slate-800'}`}>
+                <div className="flex items-center gap-4 md:gap-6">
+                  <span className={`text-xl md:text-2xl font-black italic ${i === 0 ? 'text-yellow-500' : 'text-slate-600'}`}>P{i + 1}</span>
+                  <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center border-2 border-slate-700 overflow-hidden" style={{ backgroundColor: p.team?.color }}>
+                    {p.team ? <img src={`/src/images/teams/${p.team.id}.png`} className="w-6 h-6 md:w-8 md:h-8 object-contain" /> : <UserCircle size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="text-lg md:text-xl font-bold text-white uppercase truncate max-w-[120px] md:max-w-none">{p.nickname}</h3>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{p.team?.name[lang] || 'Independent'}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg md:text-xl font-mono font-black text-white">{p.finishTime ? `${p.finishTime}s` : 'DNF'}</div>
+                  <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{i === 0 ? 'WINNER' : `+${(p.finishTime - sortedPlayers[0].finishTime).toFixed(3)}s`}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-center gap-4">
+            {currentRoom.hostId === socket.id ? (
+              <button
+                onClick={() => socket.emit('room:reset', { roomId: currentRoom.id })}
+                className="bg-red-600 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-red-500 transition-all shadow-xl active:scale-95 text-sm"
+              >
+                {lang === 'ko' ? '대기실로 돌아가기' : 'Back to Paddock'}
+              </button>
+            ) : (
+              <div className="bg-slate-800/50 text-slate-400 px-8 py-4 rounded-xl font-black uppercase tracking-widest text-center text-sm border border-slate-700 animate-pulse">
+                {lang === 'ko' ? '방장이 메인 로비로 이동시키길 기다리는 중...' : 'Waiting for host to return to paddock...'}
+              </div>
+            )}
+            <button
+              onClick={leaveRoom}
+              className="bg-slate-800 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all shadow-xl active:scale-95 text-sm"
+            >
+              {lang === 'ko' ? '방 나가기' : 'Exit Room'}
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -213,9 +344,20 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                 <h2 className="text-2xl font-black text-white italic">{currentRoom.name}</h2>
                 {isHost && <Crown size={18} className="text-yellow-500" />}
               </div>
-              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest mt-1">
-                {track.name[lang]} | {currentRoom.players.length}/4 DRIVERS
-              </p>
+              <div className="flex items-center gap-3 mt-1">
+                <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">
+                  {track.name[lang]} | {currentRoom.players.length}/4 {lang === 'ko' ? '명의 드라이버' : 'DRIVERS'}
+                </p>
+                {isHost && (
+                  <button
+                    onClick={() => setIsSelectingTrack(true)}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 px-2.5 py-1 rounded-full border border-slate-700 transition-all text-[10px] font-black uppercase"
+                  >
+                    <MapIcon size={12} />
+                    {t.changeTrack}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -227,15 +369,15 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                 : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-white hover:text-white'
                 }`}
             >
-              <CheckCircle2 size={18} /> {me?.isReady ? 'READY!' : 'NOT READY'}
+              <CheckCircle2 size={18} /> {me?.isReady ? (lang === 'ko' ? '준비 완료!' : 'READY!') : (lang === 'ko' ? '준비 대기' : 'NOT READY')}
             </button>
 
             {isHost && (
               <button
-                disabled={!currentRoom.players.every((p: any) => p.isReady)} // 모든 플레이어가 레디해야 활성화
+                disabled={!currentRoom.players.every((p: any) => p.isReady)}
                 onClick={startRace}
                 className={`flex-1 md:flex-none px-8 py-3 rounded-lg font-black uppercase flex items-center justify-center gap-2 transition-all ${currentRoom.players.every((p: any) => p.isReady)
-                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] cursor-pointer'
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)]'
                   : 'bg-slate-800 text-slate-600 cursor-not-allowed'
                   }`}
               >
@@ -245,92 +387,120 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
-          {Array.from({ length: 4 }).map((_, idx) => {
-            const player = currentRoom.players[idx];
-            const isMe = player?.id === socket.id;
-            const isHostCard = player?.id === currentRoom.hostId;
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-20">
+          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 h-fit">
+            {Array.from({ length: 4 }).map((_, idx) => {
+              const player = currentRoom.players[idx];
+              const isMe = player?.id === socket.id;
+              const isHostCard = player?.id === currentRoom.hostId;
 
-            return (
-              <div key={idx} className={`h-[400px] rounded-3xl border-2 transition-all relative overflow-hidden ${player ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-slate-950/50 border-slate-800 border-dashed flex flex-col items-center justify-center'}`}>
-                {player ? (
-                  <>
-                    <CarVisualizer setup={player.setup} livery={player.livery} lang={lang} track={track} />
-                    <div className="absolute top-5 left-5 right-5 flex justify-between items-start pointer-events-none">
-                      <div className="flex items-center gap-2 bg-black/80 px-4 py-2 rounded-full border border-slate-700 backdrop-blur-md">
-                        <div className={`w-2 h-2 rounded-full ${player.isReady ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
-                        <span className="text-xs font-black text-white uppercase tracking-tighter">
-                          {player.nickname} {isMe && `(${t.you})`}
-                        </span>
-                      </div>
-                      {isHostCard && (
-                        <div className="bg-yellow-500 text-black text-[9px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg">
-                          {t.host}
+              return (
+                <div key={idx} className={`h-[420px] rounded-3xl border-2 transition-all relative overflow-hidden ${player ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-slate-950/50 border-slate-800 border-dashed flex flex-col items-center justify-center'}`}>
+                  {player ? (
+                    <>
+                      <CarVisualizer setup={player.setup} livery={player.livery} lang={lang} track={track} />
+                      <div className="absolute top-5 left-5 right-5 flex justify-between items-start pointer-events-none">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2 bg-black/80 px-4 py-2 rounded-full border border-slate-700 backdrop-blur-md">
+                            <div className={`w-2 h-2 rounded-full ${player.isReady ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
+                            <span className="text-xs font-black text-white uppercase tracking-tighter">
+                              {player.nickname} {isMe && `(${t.you})`}
+                            </span>
+                          </div>
+                          {player.team && (
+                            <div className="bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-800 backdrop-blur-md flex items-center gap-2 w-fit">
+                              <img src={`/src/images/teams/${player.team.id}.png`} className="w-4 h-4 object-contain" alt="" />
+                              <span className="text-[10px] font-bold text-slate-400">{player.team.name[lang]}</span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="bg-slate-900/50 p-8 rounded-full mb-4 border border-slate-800">
-                      <Users size={48} className="text-slate-800" />
-                    </div>
-                    <span className="text-slate-700 font-black uppercase text-[10px] tracking-[0.3em]">{t.waiting}</span>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // --- RESULTS VIEW ---
-  if (currentRoom && currentRoom.status === 'finished') {
-    const sortedPlayers = [...currentRoom.players].sort((a, b) => (a.finishTime || 999) - (b.finishTime || 999));
-
-    return (
-      <div className="max-w-4xl mx-auto mt-10 animate-fade-in">
-        <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-10 shadow-2xl overflow-hidden relative">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-yellow-500 to-green-500" />
-
-          <div className="flex flex-col items-center mb-10">
-            <Trophy size={64} className="text-yellow-500 mb-4 animate-bounce" />
-            <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Grand Prix Results</h2>
-            <p className="text-slate-500 font-bold uppercase tracking-widest mt-2">{TRACKS.find(t => t.id === currentRoom.trackId)?.name[lang]}</p>
+                        {isHostCard && (
+                          <div className="bg-yellow-500 text-black text-[9px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg">
+                            {t.host}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-slate-900/50 p-10 rounded-full mb-4 border border-slate-800">
+                        <Users size={40} className="text-slate-800" />
+                      </div>
+                      <span className="text-slate-700 font-black uppercase text-[10px] tracking-[0.3em]">{t.waiting}</span>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          <div className="space-y-4 mb-10">
-            {sortedPlayers.map((p, i) => (
-              <div key={p.id} className={`flex items-center justify-between p-6 rounded-2xl border-2 transition-all ${i === 0 ? 'bg-yellow-500/10 border-yellow-500 shadow-lg shadow-yellow-500/20' : 'bg-slate-950 border-slate-800'}`}>
-                <div className="flex items-center gap-6">
-                  <span className={`text-2xl font-black italic ${i === 0 ? 'text-yellow-500' : 'text-slate-600'}`}>P{i + 1}</span>
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-slate-700" style={{ backgroundColor: p.team?.color }}>
-                    {p.team ? <img src={p.team.logo} className="w-8 h-8 object-contain" /> : <UserCircle size={24} />}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white uppercase">{p.nickname}</h3>
-                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{p.team?.name[lang] || 'Independent'}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xl font-mono font-black text-white">{p.finishTime ? `${p.finishTime}s` : 'DNF'}</div>
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{i === 0 ? 'WINNER' : `+${(p.finishTime - sortedPlayers[0].finishTime).toFixed(3)}s`}</div>
-                </div>
+          <div className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl flex flex-col h-[864px] shadow-2xl lg:sticky lg:top-24">
+            <div className="bg-slate-800/50 p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={16} className="text-red-500" />
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">{t.paddockChat}</span>
               </div>
-            ))}
-          </div>
+              <span className="text-[9px] text-slate-500 font-bold uppercase">{chatMessages.length} {t.messages}</span>
+            </div>
 
-          <div className="flex justify-center">
-            <button
-              onClick={leaveRoom}
-              className="bg-white text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all shadow-xl active:scale-95"
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar"
             >
-              Back to Lobby
-            </button>
+              {chatMessages.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-slate-600 text-[9px] font-black uppercase tracking-tighter italic text-center px-4">{t.noMessages || 'No messages yet. Say hello!'}</p>
+                </div>
+              ) : (
+                chatMessages.map((msg, i) => (
+                  <div key={i} className="flex items-start gap-3 animate-slide-in-right">
+                    {msg.teamId ? (
+                      <div className="w-6 h-6 rounded-full border border-slate-700 flex items-center justify-center bg-slate-800 overflow-hidden flex-none mt-1">
+                        <img src={`/src/images/teams/${msg.teamId}.png`} className="w-4 h-4 object-contain" alt="" />
+                      </div>
+                    ) : (
+                      <UserCircle size={20} className="text-slate-600 mt-1 flex-none" />
+                    )}
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-black text-white">{msg.nickname}</span>
+                        <span className="text-[9px] text-slate-500 font-mono">{new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <p className="text-sm text-slate-300 font-medium leading-relaxed">{msg.content}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={sendChatMessage} className="p-4 bg-slate-950/50 border-t border-slate-800 flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={t.messagePlaceholder || "메시지..."}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white focus:border-red-500 outline-none"
+              />
+              <button type="submit" className="bg-red-600 hover:bg-red-500 text-white p-2 rounded-xl transition-all active:scale-95">
+                <LogIn size={16} />
+              </button>
+            </form>
           </div>
         </div>
+
+        {isSelectingTrack && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-black/60 animate-fade-in">
+            <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl w-full max-w-5xl shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-hidden animate-slide-up relative">
+              <button onClick={() => setIsSelectingTrack(false)} className="absolute top-6 right-6 text-slate-500 hover:text-white p-2 bg-slate-800 rounded-full border border-slate-700 z-10">
+                <X size={20} />
+              </button>
+              <div className="p-8 pb-12 overflow-x-hidden">
+                <TrackSelector tracks={TRACKS} selectedTrack={track} lang={lang} variant="grid" onSelect={(selected) => changeTrack(selected.id)} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -360,82 +530,38 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
         </div>
 
         <div className="flex gap-4 w-full md:w-auto">
-          <button
-            onClick={() => socket.emit('getLobby')}
-            className="p-4 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-all border border-slate-700"
-            title={t.refresh}
-          >
-            <RotateCw size={20} />
-          </button>
-          <button
-            onClick={createRoom}
-            className="flex-1 md:flex-none bg-white hover:bg-slate-200 text-slate-900 px-10 py-4 rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all shadow-2xl active:scale-95"
-          >
+          <button onClick={() => socket.emit('getLobby')} className="p-4 rounded-xl bg-slate-800 text-slate-400 hover:text-white border border-slate-700"><RotateCw size={20} /></button>
+          <button onClick={createRoom} className="flex-1 md:flex-none bg-white hover:bg-slate-200 text-slate-900 px-10 py-4 rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all shadow-2xl active:scale-95">
             <Plus size={18} /> {t.createRoom}
           </button>
         </div>
       </div>
 
       {rooms.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 bg-slate-900/30 border-2 border-dashed border-slate-800 rounded-3xl animate-pulse-slow">
-          <div className="bg-slate-800/50 p-10 rounded-full mb-6 border border-slate-700">
-            <WifiOff size={64} className="text-slate-700" />
-          </div>
-          <p className="text-slate-400 font-black uppercase text-sm tracking-widest mb-2">
-            활성화된 패독이 없습니다
-          </p>
-          <p className="text-slate-600 text-xs text-center max-w-xs font-medium">
-            Make the first room and wait for challengers!
-          </p>
+        <div className="flex flex-col items-center justify-center py-24 bg-slate-900/30 border-2 border-dashed border-slate-800 rounded-3xl">
+          <WifiOff size={64} className="text-slate-700 mb-6" />
+          <p className="text-slate-400 font-black uppercase text-sm tracking-widest">활성화된 패독이 없습니다</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-20">
           {rooms.map(room => (
-            <div key={room.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-7 hover:border-red-500/50 transition-all group relative overflow-hidden flex flex-col h-full shadow-lg hover:shadow-2xl">
-              <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-10 transition-opacity">
-                <Shield size={140} />
-              </div>
+            <div key={room.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-7 hover:border-red-500/50 transition-all group relative overflow-hidden flex flex-col h-full shadow-lg">
               <div className="flex justify-between items-start mb-8">
-                <div className="flex flex-col gap-1">
-                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em] shadow-[0_0_10px_rgba(220,38,38,0.5)] w-fit">RACE ROOM</span>
-                  <span className="text-[9px] text-slate-600 font-mono tracking-tighter uppercase">{new Date(room.createdAt).toLocaleTimeString()} 생성됨</span>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="text-white text-lg font-black font-mono leading-none">{room.players.length}/4</span>
-                  <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest">DRIVERS</span>
-                </div>
+                <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em]">RACE ROOM</span>
+                <span className="text-white text-lg font-black font-mono leading-none">{room.players.length}/4</span>
               </div>
-
-              <h3 className="text-2xl font-black text-white mb-2 italic truncate group-hover:text-red-500 transition-colors">{room.name}</h3>
+              <h3 className="text-2xl font-black text-white mb-2 italic truncate group-hover:text-red-500 transition-colors uppercase">{room.name}</h3>
               <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-8 border-l-2 border-red-500 pl-3">
-                {/* Track ID might be string initially if not synced perfectly, handle gracefully */}
-                {room.trackId}
+                {TRACKS.find(tr => tr.id === room.trackId)?.name[lang] || room.trackId}
               </p>
-
               <div className="flex -space-x-3 mb-10 mt-auto">
                 {room.players.map((p: any, i: number) => (
-                  <div
-                    key={i}
-                    className="w-12 h-12 rounded-full bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-xs font-black text-white shadow-xl overflow-hidden relative group/avatar"
-                    title={p.nickname}
-                    style={{ backgroundColor: p.team?.color || '#334155' }}
-                  >
-                    {p.team ? (
-                      <img src={p.team.logo} className="w-7 h-7 object-contain" alt="logo" />
-                    ) : p.nickname[0].toUpperCase()}
-                    {room.hostId === p.id && (
-                      <div className="absolute -top-1 -right-1 bg-yellow-500 rounded-full p-0.5 border-2 border-slate-900">
-                        <Crown size={8} className="text-black" />
-                      </div>
-                    )}
+                  <div key={i} className="w-12 h-12 rounded-full border-4 border-slate-900 flex items-center justify-center text-xs font-black text-white shadow-xl overflow-hidden relative" style={{ backgroundColor: p.team?.color || '#334155' }}>
+                    {p.team ? <img src={`/src/images/teams/${p.team.id}.png`} className="w-7 h-7 object-contain" alt="" /> : p.nickname[0].toUpperCase()}
                   </div>
                 ))}
               </div>
-
-              <button
-                onClick={() => joinRoom(room.id)}
-                className="w-full bg-slate-800 group-hover:bg-red-600 py-5 rounded-2xl text-white font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all group-hover:shadow-[0_0_20px_rgba(220,38,38,0.4)] transform group-hover:-translate-y-1"
-              >
+              <button onClick={() => joinRoom(room.id)} className="w-full bg-slate-800 group-hover:bg-red-600 py-5 rounded-2xl text-white font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all">
                 <LogIn size={18} /> {t.joinRoom}
               </button>
             </div>
