@@ -269,6 +269,9 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
                                         {post.author}
                                     </div>
                                     <div className="flex items-center gap-4">
+                                        <div className="flex items-center gap-1 text-slate-500 hover:text-cyan-400 transition-colors">
+                                            <MessageCircle size={12} /> {post.comment_count || 0}
+                                        </div>
                                         <div className="flex items-center gap-1 group-hover:text-cyan-400 transition-colors">
                                             <Eye size={12} /> {post.views || 0}
                                         </div>

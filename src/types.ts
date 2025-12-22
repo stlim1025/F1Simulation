@@ -133,6 +133,8 @@ export interface MPRoom {
   trackId: string;
   hostId: string;
   players: MPPlayer[];
-  status: 'lobby' | 'racing' | 'finished';
+  status: 'lobby' | 'countdown' | 'racing' | 'finished';
+  totalLaps: number;
+  raceStartTime?: number;
   createdAt: number; // Added for shared server sorting
 }

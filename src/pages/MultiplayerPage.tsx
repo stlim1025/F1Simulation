@@ -26,6 +26,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
 
   const [isSelectingTrack, setIsSelectingTrack] = useState(false);
   const [myPlayerId, setMyPlayerId] = useState<string>('');
+  // const [creationLaps, setCreationLaps] = useState(3); // Removed from here
 
   // Chat State
   const [chatMessages, setChatMessages] = useState<{ nickname: string, teamId?: string, content: string, time: string }[]>([]);
@@ -166,7 +167,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   const createRoom = () => {
     if (!nickname) return;
     const player = { nickname, setup, livery, team };
-    socket.emit('createRoom', { name: `${nickname}'s Paddock`, trackId: TRACKS[0].id, player });
+    socket.emit('createRoom', { name: `${nickname}'s Paddock`, trackId: TRACKS[0].id, player, totalLaps: 3 }); // Default 3
   };
 
   const joinRoom = (roomId: string) => {
@@ -202,6 +203,11 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     if (!currentRoom) return;
     socket.emit('room:changeTrack', { roomId: currentRoom.id, trackId });
     setIsSelectingTrack(false);
+  };
+
+  const changeLaps = (laps: number) => {
+    if (!currentRoom) return;
+    socket.emit('room:changeLaps', { roomId: currentRoom.id, laps });
   };
 
   const sendChatMessage = (e?: React.FormEvent) => {
@@ -249,7 +255,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   }
 
   // --- RACING VIEW ---
-  if (currentRoom && currentRoom.status === 'racing') {
+  if (currentRoom && (currentRoom.status === 'racing' || currentRoom.status === 'countdown')) {
     const me = currentRoom.players.find((p: any) => p.id === socket.id);
     if (!me) return <div className="p-20 text-white">Connecting to race...</div>;
 
@@ -346,16 +352,29 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">
-                  {track.name[lang]} | {currentRoom.players.length}/4 {lang === 'ko' ? '명의 드라이버' : 'DRIVERS'}
+                  {track.name[lang]} | {currentRoom.players.length}/4 {lang === 'ko' ? '명의 드라이버' : 'DRIVERS'} | {currentRoom.totalLaps} LAPS
                 </p>
                 {isHost && (
-                  <button
-                    onClick={() => setIsSelectingTrack(true)}
-                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 px-2.5 py-1 rounded-full border border-slate-700 transition-all text-[10px] font-black uppercase"
-                  >
-                    <MapIcon size={12} />
-                    {t.changeTrack}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setIsSelectingTrack(true)}
+                      className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 px-2.5 py-1 rounded-full border border-slate-700 transition-all text-[10px] font-black uppercase"
+                    >
+                      <MapIcon size={12} />
+                      {t.changeTrack}
+                    </button>
+                    <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-full border border-slate-700">
+                      {[1, 3, 5, 10].map(l => (
+                        <button
+                          key={l}
+                          onClick={() => changeLaps(l)}
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-black transition-all ${currentRoom.totalLaps === l ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -531,6 +550,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
 
         <div className="flex gap-4 w-full md:w-auto">
           <button onClick={() => socket.emit('getLobby')} className="p-4 rounded-xl bg-slate-800 text-slate-400 hover:text-white border border-slate-700"><RotateCw size={20} /></button>
+
           <button onClick={createRoom} className="flex-1 md:flex-none bg-white hover:bg-slate-200 text-slate-900 px-10 py-4 rounded-xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all shadow-2xl active:scale-95">
             <Plus size={18} /> {t.createRoom}
           </button>

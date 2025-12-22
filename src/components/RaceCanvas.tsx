@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
 import { MPPlayer, MPRoom, TrackData } from '../types';
 import { TRACKS } from '../constants';
-import { Flag, Trophy } from 'lucide-react';
+import { Flag, Trophy, Timer, Hourglass } from 'lucide-react';
 
 interface Props {
     room: MPRoom;
@@ -19,34 +19,65 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     const [myResult, setMyResult] = useState<number | null>(null);
     const [trackImage, setTrackImage] = useState<HTMLImageElement | null>(null);
 
+    // Race State
+    const [currentLap, setCurrentLap] = useState(1);
+    const [lapTimes, setLapTimes] = useState<string[]>([]);
+    const [lastLapTime, setLastLapTime] = useState<string | null>(null);
+    const [elapsedTime, setElapsedTime] = useState("00:00.000");
+    const [rank, setRank] = useState(1);
+
     const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0];
 
-    // Game Loop Refs (to avoid stale closures)
+    // Game Loop Refs
     const paramsRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, vw: 1000, vh: 1000, zoom: 2.0 });
     const trackPathRef = useRef<Path2D>(new Path2D(track.svgPath));
     const startMatchRef = useRef<RegExpMatchArray | null>(track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i));
     const playersRef = useRef<MPPlayer[]>(room.players);
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
+
+    // Initial position is stored here
+    const startPosRef = useRef({ x: 500, y: 800 });
+
     const gameState = useRef({
-        x: 500, // Start center
+        x: 500,
         y: 800,
         rotation: 0,
         speed: 0,
-        lap: 0,
-        lastCheckpoint: 0
+        lap: 1,
+        lastCheckpoint: 0,
+        lapStartTime: 0
     });
 
     // Physics Constants
-    const ACCEL = 0.08; // 추가 하향 (기존 0.12)
-    const MAX_SPEED = 2.5; // 추가 하향 (기존 3)
+    const ACCEL = 0.08;
+    const MAX_SPEED = 2.5;
     const FRICTION = 0.96;
-    const TURN_SPEED = 0.03; // 추가 하향 (기존 0.04)
+    const TURN_SPEED = 0.03;
     const TRACK_WIDTH = 80;
+
+    // Timer Logic
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (room.status === 'racing' && room.raceStartTime) {
+            gameState.current.lapStartTime = room.raceStartTime; // Initial lap start time
+            interval = setInterval(() => {
+                const now = Date.now();
+                const diff = now - (room.raceStartTime || now);
+                const min = Math.floor(diff / 60000);
+                const sec = Math.floor((diff % 60000) / 1000);
+                const ms = diff % 1000;
+                setElapsedTime(`${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`);
+            }, 50); // Update every 50ms
+        } else {
+            setElapsedTime("00:00.000");
+        }
+        return () => clearInterval(interval);
+    }, [room.status, room.raceStartTime]);
 
     useEffect(() => {
         const img = new Image();
-        img.src = track.mapUrl;
+        img.src = track.mapUrl || '';
         img.onload = () => {
             setTrackImage(img);
 
@@ -68,19 +99,28 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             trackPathRef.current = new Path2D(track.svgPath);
             startMatchRef.current = track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i);
 
-            // RESET RACE STATES on track change/load
+            // Reset States
             gameState.current.lastCheckpoint = 0;
             gameState.current.speed = 0;
+            gameState.current.lap = 1;
+            setCurrentLap(1);
+            setLapTimes([]);
+            setLastLapTime(null);
+
             isFinishedRef.current = false;
             setIsFinished(false);
 
-            // Set Initial Position whenever track changes
+            // Set Initial Position
             const startMatch = startMatchRef.current;
             if (startMatch) {
                 const ox = paramsRef.current.offsetX;
                 const oy = paramsRef.current.offsetY;
-                gameState.current.x = parseFloat(startMatch[1]) * s + ox;
-                gameState.current.y = parseFloat(startMatch[2]) * s + oy;
+                const sx = parseFloat(startMatch[1]) * s + ox;
+                const sy = parseFloat(startMatch[2]) * s + oy;
+
+                startPosRef.current = { x: sx, y: sy };
+                gameState.current.x = sx;
+                gameState.current.y = sy;
                 gameState.current.rotation = 0;
             }
         };
@@ -109,13 +149,11 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         const ctx = canvas?.getContext('2d');
         let animationFrameId: number;
 
-        const startTime = Date.now();
-
         const render = () => {
             if (!ctx || !canvas) return;
 
             // 1. Physics Update
-            if (!isFinishedRef.current) {
+            if (!isFinishedRef.current && room.status === 'racing') {
                 // Movement
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL;
                 if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL;
@@ -136,20 +174,44 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                 const nextX = gameState.current.x + Math.sin(gameState.current.rotation) * gameState.current.speed;
                 const nextY = gameState.current.y - Math.cos(gameState.current.rotation) * gameState.current.speed;
 
-                // 2. Map Boundary Check (Circular wall at center 500,500 with radius 480)
+                // 2. Map Boundary Check
+                // 2. Map Boundary Check
                 const distFromCenter = Math.sqrt(Math.pow(nextX - 500, 2) + Math.pow(nextY - 500, 2));
                 if (distFromCenter > 480) {
-                    // Strong wall collision: prevent moving outside the circle
                     const angle = Math.atan2(nextY - 500, nextX - 500);
                     gameState.current.x = 500 + 480 * Math.cos(angle);
                     gameState.current.y = 500 + 480 * Math.sin(angle);
-                    gameState.current.speed = 0; // Stop movement completely
-                    // Do not return, allow other physics to apply
+                    gameState.current.speed = 0;
                 } else {
-                    gameState.current.x = nextX;
-                    gameState.current.y = nextY;
-                }
+                    let cx = nextX;
+                    let cy = nextY;
 
+                    // Car Collision Check
+                    playersRef.current.forEach(p => {
+                        if (p.id === meRef.current.id || (p.x === 0 && p.y === 0)) return;
+
+                        const dx = cx - (p.x || 0);
+                        const dy = cy - (p.y || 0);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        // Car size approx 16x30, so radius 15 is reasonable for fun physics
+                        if (dist < 30) {
+                            const nx = dx / dist || 1;
+                            const ny = dy / dist || 0;
+                            const overlap = 30 - dist;
+
+                            // Push away
+                            cx += nx * overlap;
+                            cy += ny * overlap;
+
+                            // Bounce
+                            gameState.current.speed *= -0.5;
+                        }
+                    });
+
+                    gameState.current.x = cx;
+                    gameState.current.y = cy;
+                }
 
                 // 3. Collision / Track Boundary Check
                 if (ctx) {
@@ -159,13 +221,10 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.translate(ox, oy);
                     ctx.scale(s, s);
-                    ctx.lineWidth = 100; // 물리 충돌 너비 (도로폭 반영)
+                    ctx.lineWidth = 100;
 
                     const isOnTrack = ctx.isPointInStroke(trackPath, gameState.current.x, gameState.current.y);
                     ctx.restore();
-
-                    // gameState.current.x = nextX; // Moved above to handle circular wall
-                    // gameState.current.y = nextY; // Moved above to handle circular wall
 
                     if (!isOnTrack) {
                         gameState.current.speed *= 0.85;
@@ -176,27 +235,55 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     }
                 }
 
-                // 2. Finish Line Check (1 lap race for now)
+                // 2. Finish Line / Lap Check
                 const startMatch = startMatchRef.current;
                 if (startMatch) {
                     const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
                     const sx = parseFloat(startMatch[1]) * s + ox;
                     const sy = parseFloat(startMatch[2]) * s + oy;
                     const distToStart = Math.sqrt(Math.pow(gameState.current.x - sx, 2) + Math.pow(gameState.current.y - sy, 2));
-                    // Checkpoint logic to prevent cheats (Only after 3 seconds to avoid initial jump bug)
-                    const raceTime = Date.now() - startTime;
-                    if (distToStart > 450 && raceTime > 3000) {
-                        gameState.current.lastCheckpoint = 1; // Passed halfway mark
+
+                    // Checkpoint logic (Halfway)
+                    if (distToStart > 450) {
+                        gameState.current.lastCheckpoint = 1;
                     }
 
-                    // Finish line logic (Radius increased to 100 to avoid missing the line)
-                    if (distToStart < 100 && gameState.current.lastCheckpoint === 1 && !isFinishedRef.current && raceTime > 5000) {
-                        const finalTime = (raceTime / 1000).toFixed(3);
-                        isFinishedRef.current = true;
-                        setIsFinished(true);
-                        setMyResult(parseFloat(finalTime));
-                        socket.emit('finishRace', { roomId: room.id, time: finalTime });
+                    // Crossing Start/Finish line
+                    if (distToStart < 100 && gameState.current.lastCheckpoint === 1) {
+                        // Crossed line
+                        // Calculate lap time
+                        const now = Date.now();
+                        const lapTimeMs = now - gameState.current.lapStartTime;
+                        const lapTimeSec = (lapTimeMs / 1000).toFixed(3);
+
+                        // Determine if finish or next lap
+                        if (gameState.current.lap >= room.totalLaps) {
+                            if (!isFinishedRef.current) {
+                                isFinishedRef.current = true;
+                                setIsFinished(true);
+                                const totalTime = (now - (room.raceStartTime || now)) / 1000;
+                                setMyResult(totalTime);
+                                socket.emit('finishRace', { roomId: room.id, time: totalTime.toFixed(3) });
+                            }
+                        } else {
+                            // Next Lap
+                            gameState.current.lap++;
+                            gameState.current.lastCheckpoint = 0; // Reset checkpoint
+                            gameState.current.lapStartTime = now;
+
+                            setCurrentLap(gameState.current.lap);
+                            setLastLapTime(lapTimeSec + 's');
+                            setTimeout(() => setLastLapTime(null), 3000); // Hide popup after 3s
+                        }
                     }
+                }
+            } else if (room.status === 'countdown') {
+                // Force slow stop during countdown if moving (shouldn't happen but good for reset)
+                gameState.current.speed = 0;
+                if (startPosRef.current.x > 0) {
+                    gameState.current.x = startPosRef.current.x;
+                    gameState.current.y = startPosRef.current.y;
+                    gameState.current.rotation = 0;
                 }
             }
 
@@ -207,11 +294,22 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     x: gameState.current.x,
                     y: gameState.current.y,
                     rotation: gameState.current.rotation,
-                    speed: gameState.current.speed
+                    speed: gameState.current.speed,
+                    lap: gameState.current.lap
                 });
             }
 
-            // 4. Draw
+            // 4. Rank Calculation (Local Approximation)
+            const sortedPlayers = [...playersRef.current].sort((a, b) => {
+                if (a.finished && !b.finished) return -1;
+                if (!a.finished && b.finished) return 1;
+                if ((a.lap || 1) !== (b.lap || 1)) return (b.lap || 1) - (a.lap || 1);
+                return 0; // Tie-break omitted for simplicity
+            });
+            const myRank = sortedPlayers.findIndex(p => p.id === socket.id) + 1;
+            setRank(myRank);
+
+            // 5. Draw
             ctx.fillStyle = '#0f172a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -220,36 +318,27 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.save();
-            // --- DYNAMIC CHASE CAMERA (ROTATING TRACK) ---
-            // 1. Position on screen (Center 500,500)
+            // --- DYNAMIC CHASE CAMERA ---
             const { scale, offsetX, offsetY, zoom } = paramsRef.current;
             ctx.translate(500, 500);
-
-            // 2. Rotate the world in the opposite direction of the car
-            // So the car always points "Up" (0 rad) on screen
             ctx.rotate(-gameState.current.rotation);
-
-            // 3. Zoom
             ctx.scale(zoom, zoom);
-
-            // 4. Translate back to car world coordinates
             ctx.translate(-gameState.current.x, -gameState.current.y);
-            // -------------------------------------
 
             ctx.save();
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
-            // 1. Draw Map
+            // Draw Map
             if (trackImage) {
                 ctx.drawImage(trackImage, 0, 0, paramsRef.current.vw, paramsRef.current.vh);
             } else {
                 ctx.strokeStyle = '#334155';
-                ctx.lineWidth = 120; // 가시성 증대를 위해 두께 상향 (기존 80)
+                ctx.lineWidth = 120;
                 ctx.stroke(trackPathRef.current);
             }
 
-            // Start/Finish Line Indicator
+            // Start/Finish Line
             const startMatch = startMatchRef.current;
             if (startMatch) {
                 ctx.save();
@@ -258,19 +347,18 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                 ctx.fillRect(-30, -2, 60, 4);
                 ctx.restore();
             }
-            ctx.restore(); // Restore from track space
+            ctx.restore();
 
             // Remote Players
             playersRef.current.forEach(p => {
                 if (p.id === meRef.current.id) return;
-                // Remote players rotate relative to their own world rotation
                 drawCar(ctx, p.x || 0, p.y || 0, p.rotation || 0, p.team?.color || '#888', p.nickname, gameState.current.rotation);
             });
 
-            // Self (Drawn at center within the camera view, pointing UP)
+            // Self
             drawCar(ctx, gameState.current.x, gameState.current.y, gameState.current.rotation, meRef.current.team?.color || '#fff', "YOU", gameState.current.rotation);
 
-            ctx.restore(); // Restore from dynamic camera transformation
+            ctx.restore();
 
             animationFrameId = requestAnimationFrame(render);
         };
@@ -282,27 +370,32 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             window.removeEventListener('keyup', handleKeyUp);
             cancelAnimationFrame(animationFrameId);
         };
-    }, []);
+    }, [room.status]);
 
     // Socket Listener for Updates
     useEffect(() => {
         socket.on('playerMoved', (data: any) => {
             setPlayers(prev => prev.map(p => {
                 if (p.id === data.id) {
-                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed };
+                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap };
                 }
                 return p;
             }));
             playersRef.current = playersRef.current.map(p => {
                 if (p.id === data.id) {
-                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed };
+                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap };
                 }
                 return p;
             });
         });
 
         socket.on('playerFinished', (data: any) => {
-            // Handle finish
+            playersRef.current = playersRef.current.map(p => {
+                if (p.id === data.id) {
+                    return { ...p, finished: true, finishTime: data.time };
+                }
+                return p;
+            });
             if (data.id === socket.id) {
                 isFinishedRef.current = true;
                 setIsFinished(true);
@@ -333,27 +426,26 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
 
         // Wheels
         ctx.fillStyle = '#000';
-        ctx.fillRect(-10, -15, 4, 8); // FL
-        ctx.fillRect(6, -15, 4, 8); // FR
-        ctx.fillRect(-10, 8, 4, 8); // RL
-        ctx.fillRect(6, 8, 4, 8); // RR
+        ctx.fillRect(-10, -15, 4, 8);
+        ctx.fillRect(6, -15, 4, 8);
+        ctx.fillRect(-10, 8, 4, 8);
+        ctx.fillRect(6, 8, 4, 8);
 
         // Spoiler
         ctx.fillStyle = color;
         ctx.fillRect(-8, 12, 16, 4);
 
-        // Driver Helmet
-        ctx.fillStyle = '#fbbf24'; // Yellow
+        // Helmet
+        ctx.fillStyle = '#fbbf24';
         ctx.beginPath();
         ctx.arc(0, -2, 3, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.restore();
 
-        // Label (Counter-rotate to keep it upright based on world rotation)
+        // Label
         ctx.save();
         ctx.translate(x, y);
-        // If it's your car, it stays at 0 (upright), if remote, compensate for map rotation
         ctx.rotate(worldRotation);
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 10px sans-serif';
@@ -365,23 +457,54 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-black relative">
 
+            {/* STATUS OVERLAY */}
+            {room.status === 'countdown' && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
+                    <div className="text-center animate-bounce">
+                        <h1 className="text-8xl font-black text-yellow-500 italic uppercase drop-shadow-[0_0_25px_rgba(234,179,8,0.8)]">GET READY</h1>
+                        <p className="text-white font-bold tracking-[1em] mt-4">GRID FORMATION</p>
+                    </div>
+                </div>
+            )}
+
             {/* HUD */}
             <div className="absolute top-4 left-4 right-4 flex justify-between z-10 pointer-events-none">
-                <div className="bg-black/50 p-4 rounded-xl border border-slate-700 backdrop-blur-md">
+                <div className="bg-black/50 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[150px]">
                     <h2 className="text-white font-black italic text-xl uppercase">{track.name.en}</h2>
-                    <div className="text-red-500 font-bold">LAP 1/1</div>
+                    <div className="flex items-center gap-2 mt-1">
+                        <Flag size={16} className="text-red-500" />
+                        <span className="text-red-500 font-bold text-lg">LAP {currentLap}/{room.totalLaps}</span>
+                    </div>
+                    {lastLapTime && (
+                        <div className="text-green-500 font-mono font-bold text-sm animate-pulse mt-1">
+                            LAST LAP: {lastLapTime}
+                        </div>
+                    )}
                 </div>
-                {isFinished && (
-                    <div className="bg-black/80 p-8 rounded-2xl border-2 border-yellow-500 flex flex-col items-center animate-bounce">
-                        <Trophy size={48} className="text-yellow-500 mb-2" />
-                        <h1 className="text-4xl text-white font-black uppercase italic">Finished!</h1>
-                        <p className="text-slate-300 font-mono mt-2">Time: {myResult}</p>
-                        <button onClick={onLeave} className="mt-4 bg-white text-black px-6 py-2 rounded-full font-bold pointer-events-auto">
+
+                <div className="bg-black/80 px-8 py-3 rounded-full border border-slate-700 backdrop-blur-md flex items-center gap-3">
+                    <Timer size={20} className="text-white" />
+                    <span className="text-3xl font-black font-mono text-white tracking-widest">{elapsedTime}</span>
+                </div>
+
+                <div className="bg-black/50 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[150px] text-right">
+                    <div className="text-slate-400 font-bold text-xs uppercase tracking-widest">POSITION</div>
+                    <div className="text-5xl font-black text-white italic">P{rank}<span className="text-lg text-slate-500">/{room.players.length}</span></div>
+                </div>
+            </div>
+
+            {isFinished && (
+                <div className="absolute z-50 inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-bounce shadow-2xl">
+                        <Trophy size={64} className="text-yellow-500 mb-4" />
+                        <h1 className="text-5xl text-white font-black uppercase italic mb-2">Grand Prix Finished!</h1>
+                        <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
+                        <button onClick={onLeave} className="bg-white hover:bg-slate-200 text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
                             Back to Lobby
                         </button>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             <canvas
                 ref={canvasRef}

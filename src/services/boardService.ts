@@ -14,6 +14,7 @@ export interface Post {
     team_id?: string;
     views: number;
     comments?: Comment[];
+    comment_count?: number; // Added for list view
     created_at: string;
 }
 

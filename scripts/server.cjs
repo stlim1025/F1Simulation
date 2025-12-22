@@ -166,13 +166,24 @@ app.get('/api/posts', async (req, res) => {
 
   if (dbType === 'postgres') {
     try {
-      let query = 'SELECT * FROM posts';
+      let query = `
+        SELECT p.*, COUNT(c.id)::int as comment_count 
+        FROM posts p 
+        LEFT JOIN comments c ON p.id = c.post_id 
+      `;
       let params = [];
+      let conditions = [];
+
       if (teamId && teamId !== 'ALL') {
-        query += ' WHERE team_id = $1';
+        conditions.push(`p.team_id = $${params.length + 1}`);
         params.push(teamId);
       }
-      query += ' ORDER BY created_at DESC';
+
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+
+      query += ' GROUP BY p.id ORDER BY p.created_at DESC';
 
       const result = await pool.query(query, params);
       res.json(result.rows);
@@ -182,7 +193,11 @@ app.get('/api/posts', async (req, res) => {
     }
   } else {
     // Local DB
-    let posts = localDb.posts;
+    let posts = localDb.posts.map(p => ({
+      ...p,
+      comment_count: localDb.comments.filter(c => c.post_id == p.id).length
+    }));
+
     if (teamId && teamId !== 'ALL') {
       posts = posts.filter(p => p.team_id === teamId);
     }
@@ -403,14 +418,15 @@ io.on('connection', (socket) => {
     socket.emit('lobbyUpdate', Array.from(rooms.values()));
   });
 
-  socket.on('createRoom', ({ name, trackId, player }) => {
+  socket.on('createRoom', ({ name, trackId, player, totalLaps }) => {
     const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
     const newRoom = {
       id: roomId,
       name,
       trackId,
       hostId: socket.id,
-      players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 0, finished: false }],
+      totalLaps: totalLaps || 3, // Default 3 laps
+      players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 1, finished: false }],
       status: 'lobby',
       createdAt: Date.now(),
       chatHistory: [] // 채팅 내역 저장용
@@ -422,7 +438,7 @@ io.on('connection', (socket) => {
 
     socket.emit('roomJoined', newRoom);
     io.emit('lobbyUpdate', Array.from(rooms.values()));
-    console.log(`[Room] Created ${roomId} by ${player.nickname}`);
+    console.log(`[Room] Created ${roomId} by ${player.nickname} (Laps: ${newRoom.totalLaps})`);
   });
 
   socket.on('joinRoom', ({ roomId, player }) => {
@@ -430,7 +446,7 @@ io.on('connection', (socket) => {
     if (!room) return socket.emit('error', 'Room not found');
     if (room.players.length >= 4) return socket.emit('error', 'Room full');
 
-    const newPlayer = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 0, finished: false };
+    const newPlayer = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 1, finished: false };
     room.players.push(newPlayer);
     socket.join(roomId);
 
@@ -465,7 +481,7 @@ io.on('connection', (socket) => {
       p.livery = player.livery;
     } else {
       if (room.players.length >= 4) return socket.emit('error', 'Room full');
-      p = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 0, finished: false };
+      p = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 1, finished: false };
       room.players.push(p);
     }
 
@@ -493,14 +509,25 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('room:changeLaps', ({ roomId, laps }) => {
+    const room = rooms.get(roomId);
+    if (room && room.hostId === socket.id) {
+      room.totalLaps = laps;
+      io.to(roomId).emit('roomUpdate', room);
+      io.emit('lobbyUpdate', Array.from(rooms.values()));
+    }
+  });
+
   socket.on('room:reset', ({ roomId }) => {
     const room = rooms.get(roomId);
     if (room && room.hostId === socket.id) {
       room.status = 'lobby';
+      room.raceStartTime = null;
       room.players.forEach(p => {
         p.isReady = false;
         p.finished = false;
         p.finishTime = null;
+        p.lap = 1;
       });
       io.to(roomId).emit('roomUpdate', room);
       io.emit('lobbyUpdate', Array.from(rooms.values()));
@@ -522,22 +549,38 @@ io.on('connection', (socket) => {
   socket.on('startRace', ({ roomId }) => {
     const room = rooms.get(roomId);
     if (room && room.hostId === socket.id) {
-      room.status = 'racing';
+      // 1. Enter Countdown
+      room.status = 'countdown';
+
       // Reset players for race
       room.players.forEach(p => {
         p.finished = false;
         p.finishTime = null;
+        p.lap = 1;
       });
-      io.to(roomId).emit('raceStarted', room);
-      io.emit('lobbyUpdate', Array.from(rooms.values()));
-      console.log(`[Race] Started in ${roomId}`);
+
+      io.to(roomId).emit('roomUpdate', room);
+      io.emit('lobbyUpdate', Array.from(rooms.values())); // Update status in lobby
+
+      console.log(`[Race] Countdown started in ${roomId}`);
+
+      // 2. Start Race after 3 seconds
+      setTimeout(() => {
+        if (rooms.has(roomId)) {
+          room.status = 'racing';
+          room.raceStartTime = Date.now();
+          io.to(roomId).emit('raceStarted', room);
+          io.emit('lobbyUpdate', Array.from(rooms.values()));
+          console.log(`[Race] GO! in ${roomId}`);
+        }
+      }, 3000);
     }
   });
 
   // 2. Real-time Racing Logic
-  socket.on('playerMove', ({ roomId, x, y, rotation, speed }) => {
+  socket.on('playerMove', ({ roomId, x, y, rotation, speed, lap }) => {
     // Broadcast movement to others in room ONLY (optimization)
-    socket.to(roomId).emit('playerMoved', { id: socket.id, x, y, rotation, speed });
+    socket.to(roomId).emit('playerMoved', { id: socket.id, x, y, rotation, speed, lap });
 
     // Update server state (optional, for result verification)
     const room = rooms.get(roomId);
@@ -548,6 +591,7 @@ io.on('connection', (socket) => {
         p.y = y;
         p.rotation = rotation;
         p.speed = speed;
+        if (lap) p.lap = lap;
       }
     }
   });
