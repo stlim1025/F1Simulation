@@ -52,6 +52,8 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
             setTitle('');
             setContent('');
             setIsFormVisible(false);
+        } else {
+            alert(lang === 'ko' ? '게시글 등록에 실패했습니다.' : 'Failed to create post.');
         }
         setIsLoading(false);
     };
@@ -83,6 +85,8 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
                 comments: [...(selectedPost.comments || []), newComment]
             });
             setCommentContent('');
+        } else {
+            alert(lang === 'ko' ? '댓글 등록에 실패했습니다.' : 'Failed to create comment.');
         }
         setIsCommentLoading(false);
     };

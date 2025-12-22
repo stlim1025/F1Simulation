@@ -177,6 +177,7 @@ app.get('/api/posts', async (req, res) => {
       const result = await pool.query(query, params);
       res.json(result.rows);
     } catch (err) {
+      console.error('[DB] ❌ GET /api/posts error:', err);
       res.status(500).json({ error: 'Database query failed' });
     }
   } else {
@@ -235,6 +236,7 @@ app.post('/api/posts', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
+      console.error('[DB] ❌ POST /api/posts error:', err);
       res.status(500).json({ error: 'Post creation failed' });
     }
   } else {
@@ -265,7 +267,8 @@ app.post('/api/comments', async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
-      res.status(500).json({ error: 'Comment creation failed' });
+      console.error('[DB] ❌ POST /api/comments error:', err);
+      res.status(500).json({ error: 'Comment creation failed', detail: err.message });
     }
   } else {
     const newComment = {

@@ -54,7 +54,10 @@ export const BoardService = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(post),
             });
-            if (!response.ok) throw new Error('Failed to create post');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || errorData.error || 'Failed to create post');
+            }
             return await response.json();
         } catch (error) {
             console.error('Error creating post:', error);
@@ -69,7 +72,10 @@ export const BoardService = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(comment),
             });
-            if (!response.ok) throw new Error('Failed to create comment');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || errorData.error || 'Failed to create comment');
+            }
             return await response.json();
         } catch (error) {
             console.error('Error creating comment:', error);
