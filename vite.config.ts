@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       allowedHosts: true,
       proxy: {
-        '/api/posts': {
+        '/api': {
           target: 'http://13.238.218.144:3001',
           changeOrigin: true,
           secure: false,
