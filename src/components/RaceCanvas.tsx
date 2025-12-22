@@ -16,8 +16,15 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     const [players, setPlayers] = useState<MPPlayer[]>(room.players);
     const [isFinished, setIsFinished] = useState(false);
     const isFinishedRef = useRef(false);
+
+    // Moved track definition up
+    const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0];
+
     const [myResult, setMyResult] = useState<number | null>(null);
-    const [trackImage, setTrackImage] = useState<HTMLImageElement | null>(null);
+    // const [trackImage, setTrackImage] = useState<HTMLImageElement | null>(null); // Removed Image
+    const [svgPathData, setSvgPathData] = useState<string>(track.svgPath);
+    const [svgViewBox, setSvgViewBox] = useState<string>(track.viewBox);
+    const [isLoading, setIsLoading] = useState<boolean>(false);
 
     // Race State
     const [currentLap, setCurrentLap] = useState(1);
@@ -26,7 +33,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
     const [elapsedTime, setElapsedTime] = useState("00:00.000");
     const [rank, setRank] = useState(1);
 
-    const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0];
+    // const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0]; // Moved up
 
     // Game Loop Refs
     const paramsRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, vw: 1000, vh: 1000, zoom: 2.0 });
@@ -49,11 +56,11 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         lapStartTime: 0
     });
 
-    // Physics Constants
-    const ACCEL = 0.08;
-    const MAX_SPEED = 2.5;
+    // Physics Constants (Scaled for 4000x4000 world)
+    const ACCEL = 0.35;
+    const MAX_SPEED = 12.0;
     const FRICTION = 0.96;
-    const TURN_SPEED = 0.03;
+    const TURN_SPEED = 0.05;
     const TRACK_WIDTH = 80;
 
     // Timer Logic
@@ -75,56 +82,125 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
         return () => clearInterval(interval);
     }, [room.status, room.raceStartTime]);
 
+    // SVG Loading Logic (Ported from TrackMap.tsx)
     useEffect(() => {
-        const img = new Image();
-        img.src = track.mapUrl || '';
-        img.onload = () => {
-            setTrackImage(img);
+        let isMounted = true;
 
-            // Calculate Scaling
-            const vb = track.viewBox.split(' ').map(Number);
-            const vw = vb[2];
-            const vh = vb[3];
-            const s = Math.min(1000 / vw, 1000 / vh) * 0.9;
-            paramsRef.current = {
-                scale: s,
-                offsetX: (1000 - vw * s) / 2,
-                offsetY: (1000 - vh * s) / 2,
-                vw,
-                vh,
-                zoom: 2.0
-            };
+        const loadSvg = async () => {
+            if (track.mapUrl) {
+                setIsLoading(true);
+                try {
+                    const response = await fetch(track.mapUrl);
+                    if (!response.ok) throw new Error("Failed to fetch SVG");
+                    const text = await response.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(text, "image/svg+xml");
 
-            // Update Track Refs
-            trackPathRef.current = new Path2D(track.svgPath);
-            startMatchRef.current = track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i);
+                    const paths = Array.from(doc.querySelectorAll("path"));
 
-            // Reset States
-            gameState.current.lastCheckpoint = 0;
-            gameState.current.speed = 0;
-            gameState.current.lap = 1;
-            setCurrentLap(1);
-            setLapTimes([]);
-            setLastLapTime(null);
+                    if (paths.length > 0) {
+                        const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                        tempSvg.style.position = "absolute";
+                        tempSvg.style.visibility = "hidden";
+                        tempSvg.style.width = "0";
+                        tempSvg.style.height = "0";
+                        document.body.appendChild(tempSvg);
 
-            isFinishedRef.current = false;
-            setIsFinished(false);
+                        let longestPath = "";
+                        let maxLength = 0;
+                        let bestBBox = { x: 0, y: 0, width: 1000, height: 1000 };
 
-            // Set Initial Position
-            const startMatch = startMatchRef.current;
-            if (startMatch) {
-                const ox = paramsRef.current.offsetX;
-                const oy = paramsRef.current.offsetY;
-                const sx = parseFloat(startMatch[1]) * s + ox;
-                const sy = parseFloat(startMatch[2]) * s + oy;
+                        for (const p of paths) {
+                            const d = p.getAttribute("d");
+                            if (!d) continue;
 
+                            const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            tempPath.setAttribute("d", d);
+                            tempSvg.appendChild(tempPath);
+
+                            try {
+                                const len = tempPath.getTotalLength();
+                                if (len > maxLength) {
+                                    maxLength = len;
+                                    longestPath = d;
+                                    bestBBox = tempPath.getBBox();
+                                }
+                            } catch (e) { }
+                            tempSvg.removeChild(tempPath);
+                        }
+
+                        document.body.removeChild(tempSvg);
+
+                        if (isMounted && longestPath) {
+                            setSvgPathData(longestPath);
+                            // Add 10% padding
+                            const paddingX = bestBBox.width * 0.1;
+                            const paddingY = bestBBox.height * 0.1;
+                            const newViewBox = `${bestBBox.x - paddingX} ${bestBBox.y - paddingY} ${bestBBox.width + paddingX * 2} ${bestBBox.height + paddingY * 2}`;
+                            setSvgViewBox(newViewBox);
+                            return; // Success
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`Could not load external SVG for ${track.id}`, error);
+                } finally {
+                    if (isMounted) setIsLoading(false);
+                }
+            }
+            // Fallback
+            if (isMounted) {
+                setSvgPathData(track.svgPath);
+                setSvgViewBox(track.viewBox);
+            }
+        };
+
+        loadSvg();
+        return () => { isMounted = false; };
+    }, [track.id, track.mapUrl]);
+
+    // Recalculate Params when SVG Data Changes
+    useEffect(() => {
+        // Calculate Scaling
+        const vb = svgViewBox.split(/[\s,]+/).map(Number);
+        const vw = vb[2] || 1000;
+        const vh = vb[3] || 1000;
+
+        // Scale up the world to make the track feel larger (F1 Scale)
+        const WORLD_BASE = 4000;
+        const s = Math.min(WORLD_BASE / vw, WORLD_BASE / vh);
+
+        paramsRef.current = {
+            scale: s,
+            offsetX: (WORLD_BASE - vw * s) / 2,
+            offsetY: (WORLD_BASE - vh * s) / 2,
+            vw,
+            vh,
+            zoom: 1.5
+        };
+
+        // Update Track Refs
+        const pathStr = svgPathData || track.svgPath;
+        trackPathRef.current = new Path2D(pathStr);
+        startMatchRef.current = pathStr.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i);
+
+        // Reset States & Set Start Position
+        const startMatch = startMatchRef.current;
+        if (startMatch) {
+            const ox = paramsRef.current.offsetX;
+            const oy = paramsRef.current.offsetY;
+            const sx = parseFloat(startMatch[1]) * s + ox;
+            const sy = parseFloat(startMatch[2]) * s + oy;
+
+            // Only reset position if barely moving or first load (to avoid jitter if state updates mid-race)
+            // But since this runs on track load, it should be fine.
+            if (gameState.current.lap === 1 && gameState.current.speed === 0) {
                 startPosRef.current = { x: sx, y: sy };
                 gameState.current.x = sx;
                 gameState.current.y = sy;
                 gameState.current.rotation = 0;
             }
-        };
-    }, [track.id, track.mapUrl]);
+        }
+    }, [svgPathData, svgViewBox, track.id]);
 
     useEffect(() => {
         // Input Listeners
@@ -175,12 +251,16 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                 const nextY = gameState.current.y - Math.cos(gameState.current.rotation) * gameState.current.speed;
 
                 // 2. Map Boundary Check
-                // 2. Map Boundary Check
-                const distFromCenter = Math.sqrt(Math.pow(nextX - 500, 2) + Math.pow(nextY - 500, 2));
-                if (distFromCenter > 480) {
-                    const angle = Math.atan2(nextY - 500, nextX - 500);
-                    gameState.current.x = 500 + 480 * Math.cos(angle);
-                    gameState.current.y = 500 + 480 * Math.sin(angle);
+                // World is now 4000x4000, so center is 2000, 2000. 
+                // Increased radius significantly to prevent cutting off corners of square tracks.
+                const WORLD_CENTER = 2000;
+                const WORLD_RADIUS = 3500;
+                const distFromCenter = Math.sqrt(Math.pow(nextX - WORLD_CENTER, 2) + Math.pow(nextY - WORLD_CENTER, 2));
+
+                if (distFromCenter > WORLD_RADIUS) {
+                    const angle = Math.atan2(nextY - WORLD_CENTER, nextX - WORLD_CENTER);
+                    gameState.current.x = WORLD_CENTER + WORLD_RADIUS * Math.cos(angle);
+                    gameState.current.y = WORLD_CENTER + WORLD_RADIUS * Math.sin(angle);
                     gameState.current.speed = 0;
                 } else {
                     let cx = nextX;
@@ -221,7 +301,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.translate(ox, oy);
                     ctx.scale(s, s);
-                    ctx.lineWidth = 100;
+                    ctx.lineWidth = 20; // Reduced to ~5 car widths (20 * 4 = 80 units vs 16 unit car)
 
                     const isOnTrack = ctx.isPointInStroke(trackPath, gameState.current.x, gameState.current.y);
                     ctx.restore();
@@ -329,13 +409,40 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
-            // Draw Map
-            if (trackImage) {
-                ctx.drawImage(trackImage, 0, 0, paramsRef.current.vw, paramsRef.current.vh);
+            // Draw Map (Vector)
+            if (isLoading) {
+                ctx.font = "30px sans-serif";
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.fillText("Loading Track...", 500, 500);
             } else {
-                ctx.strokeStyle = '#334155';
-                ctx.lineWidth = 120;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // 1. Kerbs / Grass Edge (Outer)
+                ctx.strokeStyle = '#ef4444'; // Red Kerb
+                ctx.lineWidth = 22;
+                ctx.setLineDash([5, 5]);
                 ctx.stroke(trackPathRef.current);
+
+                ctx.strokeStyle = '#fff'; // White Kerb
+                ctx.lineWidth = 22;
+                ctx.lineDashOffset = 5;
+                ctx.stroke(trackPathRef.current);
+                ctx.setLineDash([]);
+                ctx.lineDashOffset = 0;
+
+                // 2. Tarmac (Main Road)
+                ctx.strokeStyle = '#1e293b'; // Slate 800
+                ctx.lineWidth = 20; // Reduced to ~5 car widths
+                ctx.stroke(trackPathRef.current);
+
+                // 3. Center Line (optional)
+                ctx.strokeStyle = '#334155'; // Slate 700
+                ctx.lineWidth = 1;
+                ctx.setLineDash([10, 10]);
+                ctx.stroke(trackPathRef.current);
+                ctx.setLineDash([]);
             }
 
             // Start/Finish Line
