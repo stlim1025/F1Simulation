@@ -61,7 +61,7 @@ export const BoardService = {
             return await response.json();
         } catch (error) {
             console.error('Error creating post:', error);
-            return null;
+            throw error;
         }
     },
 
@@ -79,7 +79,7 @@ export const BoardService = {
             return await response.json();
         } catch (error) {
             console.error('Error creating comment:', error);
-            return null;
+            throw error;
         }
     }
 };

@@ -40,20 +40,24 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
         if (!title.trim() || !content.trim()) return;
 
         setIsLoading(true);
-        const newPost = await BoardService.createPost({
-            title,
-            content,
-            author,
-            teamId: targetTeam === 'ALL' ? undefined : targetTeam
-        });
+        try {
+            const newPost = await BoardService.createPost({
+                title,
+                content,
+                author,
+                teamId: targetTeam === 'ALL' ? undefined : targetTeam
+            });
 
-        if (newPost) {
-            setPosts([newPost, ...posts]);
-            setTitle('');
-            setContent('');
-            setIsFormVisible(false);
-        } else {
-            alert(lang === 'ko' ? '게시글 등록에 실패했습니다.' : 'Failed to create post.');
+            if (newPost) {
+                setPosts([newPost, ...posts]);
+                setTitle('');
+                setContent('');
+                setIsFormVisible(false);
+            }
+        } catch (error: any) {
+            alert(lang === 'ko'
+                ? `게시글 등록 실패: ${error.message}`
+                : `Failed to create post: ${error.message}`);
         }
         setIsLoading(false);
     };
@@ -73,20 +77,24 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
         if (!selectedPost || !commentContent.trim()) return;
 
         setIsCommentLoading(true);
-        const newComment = await BoardService.createComment({
-            postId: selectedPost.id,
-            content: commentContent,
-            author
-        });
-
-        if (newComment) {
-            setSelectedPost({
-                ...selectedPost,
-                comments: [...(selectedPost.comments || []), newComment]
+        try {
+            const newComment = await BoardService.createComment({
+                postId: selectedPost.id,
+                content: commentContent,
+                author
             });
-            setCommentContent('');
-        } else {
-            alert(lang === 'ko' ? '댓글 등록에 실패했습니다.' : 'Failed to create comment.');
+
+            if (newComment) {
+                setSelectedPost({
+                    ...selectedPost,
+                    comments: [...(selectedPost.comments || []), newComment]
+                });
+                setCommentContent('');
+            }
+        } catch (error: any) {
+            alert(lang === 'ko'
+                ? `댓글 등록 실패: ${error.message}`
+                : `Failed to create comment: ${error.message}`);
         }
         setIsCommentLoading(false);
     };

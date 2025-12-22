@@ -258,7 +258,7 @@ app.post('/api/posts', async (req, res) => {
 // CREATE Comment
 app.post('/api/comments', async (req, res) => {
   const { postId, content, author } = req.body;
-
+  console.log(`[API] POST /api/comments - postId: ${postId}, author: ${author}`);
   if (dbType === 'postgres') {
     try {
       const result = await pool.query(
