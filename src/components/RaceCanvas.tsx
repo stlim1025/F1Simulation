@@ -234,18 +234,46 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL;
                 if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL;
 
+                // Setup-based Physics Calculations
+                const avgWing = (me.setup.frontWing + me.setup.rearWing) / 2;
+                const aeroFactor = avgWing / 50; // 0.0 to 1.0
+
+                // Max Speed (Low Aero = Fast, High Aero = Slow)
+                // Base 12.0. Range: ~15.6 (Low) to ~9.6 (High)
+                // Low Drag (0.0) -> 1.3 multiplier
+                // High Drag (1.0) -> 0.8 multiplier
+                const effectiveMaxSpeed = MAX_SPEED * (1.3 - 0.5 * aeroFactor);
+
+                // Turn Speed (High Aero = Grip, Low Aero = Slip)
+                // Base 0.05. Range: ~0.035 (Low) to ~0.05 (High)
+                // Reduced sensitivity spread based on user feedback. High downforce is now more stable/advantageous without being twitchy.
+                // Plus Suspension Modifier: Stiffer (higher val) = slightly faster turn response
+                const avgSusp = (me.setup.frontSuspension + me.setup.rearSuspension) / 2;
+                const suspFactor = avgSusp / 41; // Normalized 0-1 approx
+                const suspBonus = suspFactor * 0.01;
+
+                let effectiveTurnSpeed = TURN_SPEED * (0.5 + 0.5 * aeroFactor) + suspBonus;
+
+                // Sliding / Understeer Logic for Low Downforce
+                // If going fast with low downforce, lose turning ability
+                if (Math.abs(gameState.current.speed) > effectiveMaxSpeed * 0.7 && aeroFactor < 0.4) {
+                    effectiveTurnSpeed *= 0.6; // 40% loss of grip
+                }
+
                 // Friction
                 gameState.current.speed *= FRICTION;
 
                 // Rotation (Only if moving)
                 if (Math.abs(gameState.current.speed) > 0.05) {
                     const rotDir = gameState.current.speed > 0 ? 1 : -1;
-                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= TURN_SPEED * rotDir;
-                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += TURN_SPEED * rotDir;
+                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= effectiveTurnSpeed * rotDir;
+                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += effectiveTurnSpeed * rotDir;
                 }
 
                 // Speed Caps
-                gameState.current.speed = Math.max(-MAX_SPEED / 2, Math.min(MAX_SPEED, gameState.current.speed));
+                // Reverse Speed Limit (Grass Speed approx 30%)
+                const MAX_REVERSE = effectiveMaxSpeed * 0.3;
+                gameState.current.speed = Math.max(-MAX_REVERSE, Math.min(effectiveMaxSpeed, gameState.current.speed));
 
                 const nextX = gameState.current.x + Math.sin(gameState.current.rotation) * gameState.current.speed;
                 const nextY = gameState.current.y - Math.cos(gameState.current.rotation) * gameState.current.speed;
