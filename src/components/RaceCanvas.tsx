@@ -323,8 +323,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     const sy = parseFloat(startMatch[2]) * s + oy;
                     const distToStart = Math.sqrt(Math.pow(gameState.current.x - sx, 2) + Math.pow(gameState.current.y - sy, 2));
 
-                    // Checkpoint logic (Halfway)
-                    if (distToStart > 450) {
+                    // Checkpoint logic (Halfway point approx)
+                    // World scale is 4000, so 1500 is a safe "far out" distance.
+                    if (distToStart > 1500) {
                         gameState.current.lastCheckpoint = 1;
                     }
 
