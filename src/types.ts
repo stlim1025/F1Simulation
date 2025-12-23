@@ -108,6 +108,8 @@ export interface SimulationResult {
   nickname?: string; // For multiplayer
 }
 
+export type Weather = 'sunny' | 'rainy';
+
 // MULTIPLAYER TYPES
 export interface MPPlayer {
   id: string;
@@ -135,6 +137,7 @@ export interface MPRoom {
   players: MPPlayer[];
   status: 'lobby' | 'countdown' | 'racing' | 'finished';
   totalLaps: number;
+  weather: Weather;
   raceStartTime?: number;
-  createdAt: number; // Added for shared server sorting
+  createdAt: number;
 }

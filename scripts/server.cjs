@@ -426,6 +426,7 @@ io.on('connection', (socket) => {
       trackId,
       hostId: socket.id,
       totalLaps: totalLaps || 3, // Default 3 laps
+      weather: 'sunny', // Default weather
       players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 1, finished: false }],
       status: 'lobby',
       createdAt: Date.now(),
@@ -467,6 +468,30 @@ io.on('connection', (socket) => {
     console.log(`[Room] ${player.nickname} joined ${roomId}`);
   });
 
+  socket.on('room:kick', ({ roomId, targetId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (room.hostId !== socket.id) return; // Only host can kick
+
+    const targetPlayer = room.players.find(p => p.id === targetId);
+    if (!targetPlayer) return;
+
+    room.players = room.players.filter(p => p.id !== targetId);
+
+    // Notify the kicked player
+    io.to(targetId).emit('kicked');
+
+    // Make the kicked socket leave the room
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) {
+      targetSocket.leave(roomId);
+    }
+
+    io.to(roomId).emit('roomUpdate', room);
+    io.emit('lobbyUpdate', Array.from(rooms.values()));
+    console.log(`[Room] ${targetPlayer.nickname} was kicked from ${roomId}`);
+  });
+
   socket.on('rejoinRoom', ({ roomId, player }) => {
     const room = rooms.get(roomId);
     if (!room) return socket.emit('error', 'Room not found for rejoin');
@@ -475,7 +500,14 @@ io.on('connection', (socket) => {
     let p = room.players.find(pl => pl.id === socket.id || pl.nickname === player.nickname);
 
     if (p) {
+      const wasHost = (p.id === room.hostId);
       p.id = socket.id; // 소켓 ID 갱신
+
+      if (wasHost) {
+        room.hostId = socket.id;
+        console.log(`[Room] Host privileges transferred to rejoining socket ${socket.id} for room ${roomId}`);
+      }
+
       // 최신 셋업 정보 반영
       p.setup = player.setup;
       p.livery = player.livery;
@@ -543,6 +575,14 @@ io.on('connection', (socket) => {
         p.isReady = isReady;
         io.to(roomId).emit('roomUpdate', room);
       }
+    }
+  });
+
+  socket.on('room:changeWeather', ({ roomId, weather }) => {
+    const room = rooms.get(roomId);
+    if (room && room.hostId === socket.id) {
+      room.weather = weather;
+      io.to(roomId).emit('roomUpdate', room);
     }
   });
 

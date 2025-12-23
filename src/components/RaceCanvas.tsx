@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
-import { MPPlayer, MPRoom, TrackData } from '../types';
+import { MPPlayer, MPRoom, TrackData, Weather, TireCompound } from '../types';
 import { TRACKS } from '../constants';
 import { Flag, Trophy, Timer, Hourglass } from 'lucide-react';
 
@@ -9,9 +9,10 @@ interface Props {
     me: MPPlayer;
     socket: Socket;
     onLeave: () => void;
+    weather: Weather;
 }
 
-const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
+const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [players, setPlayers] = useState<MPPlayer[]>(room.players);
     const [isFinished, setIsFinished] = useState(false);
@@ -45,12 +46,28 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
 
     // Initial position is stored here
     const startPosRef = useRef({ x: 500, y: 800 });
+    const rainParticles = useRef<{ x: number, y: number, speed: number, length: number }[]>([]);
+
+    useEffect(() => {
+        if (weather === 'rainy') {
+            rainParticles.current = Array.from({ length: 150 }).map(() => ({
+                x: Math.random() * 1000,
+                y: Math.random() * 1000,
+                speed: 15 + Math.random() * 10,
+                length: 10 + Math.random() * 10
+            }));
+        } else {
+            rainParticles.current = [];
+        }
+    }, [weather]);
 
     const gameState = useRef({
         x: 500,
         y: 800,
         rotation: 0,
         speed: 0,
+        vx: 0, // Velocity Vector X
+        vy: 0, // Velocity Vector Y
         lap: 1,
         lastCheckpoint: 0,
         lapStartTime: 0
@@ -260,6 +277,16 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                     effectiveTurnSpeed *= 0.6; // 40% loss of grip
                 }
 
+                // Rain Physics
+                if (weather === 'rainy') {
+                    const hasWetTires = me.setup.tireCompound === TireCompound.WET;
+                    const rainSlipFactor = hasWetTires ? 0.85 : 0.6; // Much more slip if not on wet tires
+                    effectiveTurnSpeed *= rainSlipFactor;
+
+                    // Also reduce max speed slightly due to drag/puddles
+                    // effectiveMaxSpeed *= hasWetTires ? 0.95 : 0.85;
+                }
+
                 // Friction
                 gameState.current.speed *= FRICTION;
 
@@ -271,12 +298,29 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
                 }
 
                 // Speed Caps
-                // Reverse Speed Limit (Grass Speed approx 30%)
                 const MAX_REVERSE = effectiveMaxSpeed * 0.3;
                 gameState.current.speed = Math.max(-MAX_REVERSE, Math.min(effectiveMaxSpeed, gameState.current.speed));
 
-                const nextX = gameState.current.x + Math.sin(gameState.current.rotation) * gameState.current.speed;
-                const nextY = gameState.current.y - Math.cos(gameState.current.rotation) * gameState.current.speed;
+                // --- VECTOR INERTIA PHYSICS ---
+                // Calculate "Target Velocity" (where the wheels are pointing)
+                const targetVx = Math.sin(gameState.current.rotation) * gameState.current.speed;
+                const targetVy = -Math.cos(gameState.current.rotation) * gameState.current.speed;
+
+                // Determine Grip Factor
+                let grip = 0.2; // Dry default (responsive)
+                if (weather === 'rainy') {
+                    const hasWetTires = me.setup.tireCompound === TireCompound.WET;
+                    grip = hasWetTires ? 0.08 : 0.02; // Very slippery if no wet tires
+                }
+
+                // Interpolate current velocity towards target (Inertia)
+                // NewV = OldV + (Target - OldV) * Grip
+                gameState.current.vx += (targetVx - gameState.current.vx) * grip;
+                gameState.current.vy += (targetVy - gameState.current.vy) * grip;
+
+                // Update Position with Vector
+                const nextX = gameState.current.x + gameState.current.vx;
+                const nextY = gameState.current.y + gameState.current.vy;
 
                 // 2. Map Boundary Check
                 // World is now 4000x4000, so center is 2000, 2000. 
@@ -314,6 +358,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
 
                             // Bounce
                             gameState.current.speed *= -0.5;
+                            gameState.current.vx *= -0.5;
+                            gameState.current.vy *= -0.5;
                         }
                     });
 
@@ -423,7 +469,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // Track Background (Grass)
-            ctx.fillStyle = '#14532d';
+            ctx.fillStyle = weather === 'rainy' ? '#064e3b' : '#14532d'; // Darker green if rainy
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.save();
@@ -495,6 +541,42 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave }) => {
             drawCar(ctx, gameState.current.x, gameState.current.y, gameState.current.rotation, meRef.current.team?.color || '#fff', "YOU", gameState.current.rotation);
 
             ctx.restore();
+
+            // 6. Rain Visual Overlay
+            if (weather === 'rainy') {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to screen space
+
+                // Dark Blueish Tint
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.3)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Draw Drops
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 1;
+                ctx.lineCap = 'round';
+
+                rainParticles.current.forEach(p => {
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(p.x + p.speed * 0.1, p.y + p.length);
+                    ctx.stroke();
+
+                    // Update position
+                    p.y += p.speed;
+                    p.x += p.speed * 0.1;
+
+                    // Reset if out of screen
+                    if (p.y > canvas.height) {
+                        p.y = -20;
+                        p.x = Math.random() * canvas.width;
+                    }
+                    if (p.x > canvas.width) {
+                        p.x = 0;
+                    }
+                });
+                ctx.restore();
+            }
 
             animationFrameId = requestAnimationFrame(render);
         };

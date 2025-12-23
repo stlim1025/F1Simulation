@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { Users, Plus, Play, LogIn, UserCircle, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
 import RaceCanvas from '../components/RaceCanvas';
 import TrackSelector from '../components/TrackSelector';
@@ -120,6 +120,14 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
       alert(`Error: ${msg}`);
     });
 
+    socket.on('kicked', () => {
+      alert(lang === 'ko' ? '방장에 의해 강퇴되었습니다.' : 'You were kicked by the host.');
+      setCurrentRoom(null);
+      setChatMessages([]);
+      localStorage.removeItem('f1_current_room_id'); // Clear session
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+
     // 모든 리스너 등록 후 복구 시도
     if (socket.connected) {
       setIsConnected(true);
@@ -144,6 +152,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
       socket.off('chat:message');
       socket.off('chat:history');
       socket.off('error');
+      socket.off('kicked');
     };
   }, []);
 
@@ -210,6 +219,11 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     socket.emit('room:changeLaps', { roomId: currentRoom.id, laps });
   };
 
+  const changeWeather = (weather: 'sunny' | 'rainy') => {
+    if (!currentRoom) return;
+    socket.emit('room:changeWeather', { roomId: currentRoom.id, weather });
+  };
+
   const sendChatMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!chatInput.trim() || !currentRoom) return;
@@ -266,6 +280,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           me={me}
           socket={socket}
           onLeave={leaveRoom}
+          weather={currentRoom.weather}
         />
       </div>
     );
@@ -374,6 +389,24 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                         </button>
                       ))}
                     </div>
+                    <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-full border border-slate-700">
+                      <button
+                        onClick={() => changeWeather('sunny')}
+                        className={`p-1 px-2 rounded-full transition-all flex items-center gap-1 ${currentRoom.weather === 'sunny' ? 'bg-yellow-500 text-black' : 'text-slate-400 hover:text-white'}`}
+                        title="Sunny"
+                      >
+                        <Sun size={12} />
+                        <span className="text-[9px] font-black uppercase">Sun</span>
+                      </button>
+                      <button
+                        onClick={() => changeWeather('rainy')}
+                        className={`p-1 px-2 rounded-full transition-all flex items-center gap-1 ${currentRoom.weather === 'rainy' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                        title="Rainy"
+                      >
+                        <CloudRain size={12} />
+                        <span className="text-[9px] font-black uppercase">Rain</span>
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
@@ -419,12 +452,27 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                     <>
                       <CarVisualizer setup={player.setup} livery={player.livery} lang={lang} track={track} />
                       <div className="absolute top-5 left-5 right-5 flex justify-between items-start pointer-events-none">
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2 pointer-events-auto">
                           <div className="flex items-center gap-2 bg-black/80 px-4 py-2 rounded-full border border-slate-700 backdrop-blur-md">
                             <div className={`w-2 h-2 rounded-full ${player.isReady ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
                             <span className="text-xs font-black text-white uppercase tracking-tighter">
                               {player.nickname} {isMe && `(${t.you})`}
                             </span>
+                            {isHost && player.id !== socket.id && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(lang === 'ko' ? `${player.nickname}님을 강퇴하시겠습니까?` : `Kick ${player.nickname}?`)) {
+                                    socket.emit('room:kick', { roomId: currentRoom.id, targetId: player.id });
+                                  }
+                                }}
+                                className="ml-2 text-red-500 hover:text-red-400 transition-colors border-l border-slate-700 pl-2 flex items-center gap-1"
+                                title="Kick Player"
+                              >
+                                <X size={14} />
+                                <span className="text-[9px] font-black">KICK</span>
+                              </button>
+                            )}
                           </div>
                           {player.team && (
                             <div className="bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-800 backdrop-blur-md flex items-center gap-2 w-fit">
@@ -433,11 +481,13 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                             </div>
                           )}
                         </div>
-                        {isHostCard && (
-                          <div className="bg-yellow-500 text-black text-[9px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg">
-                            {t.host}
-                          </div>
-                        )}
+                        <div className="flex flex-col gap-2 items-end pointer-events-auto">
+                          {isHostCard && (
+                            <div className="bg-yellow-500 text-black text-[9px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg w-fit">
+                              {t.host}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </>
                   ) : (
