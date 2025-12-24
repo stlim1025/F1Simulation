@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun, Flag } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
 import RaceCanvas from '../components/RaceCanvas';
 import TrackSelector from '../components/TrackSelector';
@@ -631,8 +631,29 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                   </div>
                 ))}
               </div>
-              <button onClick={() => joinRoom(room.id)} className="w-full bg-slate-800 group-hover:bg-red-600 py-5 rounded-2xl text-white font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all">
-                <LogIn size={18} /> {t.joinRoom}
+              <button
+                onClick={() => joinRoom(room.id)}
+                disabled={room.status !== 'lobby'}
+                className={`w-full py-5 rounded-2xl text-white font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all ${room.status === 'lobby'
+                  ? 'bg-slate-800 group-hover:bg-red-600'
+                  : room.status === 'racing' || room.status === 'countdown'
+                    ? 'bg-yellow-600/50 cursor-not-allowed text-yellow-200'
+                    : 'bg-slate-800/50 cursor-not-allowed text-slate-500'
+                  }`}
+              >
+                {room.status === 'lobby' ? (
+                  <>
+                    <LogIn size={18} /> {t.joinRoom}
+                  </>
+                ) : room.status === 'racing' || room.status === 'countdown' ? (
+                  <>
+                    <Play size={18} /> RACING...
+                  </>
+                ) : (
+                  <>
+                    <Flag size={18} /> FINISHED
+                  </>
+                )}
               </button>
             </div>
           ))}

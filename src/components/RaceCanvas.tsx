@@ -555,6 +555,59 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
             ctx.restore();
 
+            // --- MINIMAP ---
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to screen space
+
+            const mapSize = 300;
+            const mapPadding = 30;
+            const mapX = canvas.width - mapSize - mapPadding;
+            const mapY = canvas.height - mapSize - mapPadding;
+
+            // Map Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(mapX, mapY, mapSize, mapSize);
+            ctx.strokeStyle = '#334155';
+            ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+            // Map Content
+            // World: 0~4000. Map: 0~300. Scale: 300/4000 = 0.075
+            const mapScale = mapSize / 4000;
+
+            ctx.translate(mapX, mapY);
+            ctx.scale(mapScale, mapScale);
+
+            // Draw Track on Map
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 80 / scale; // Adjust width to be visible (80 World Units equivalent)
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke(trackPathRef.current);
+            ctx.restore();
+
+            // Draw Rivals
+            playersRef.current.forEach(p => {
+                if (p.id === meRef.current.id) return;
+                ctx.fillStyle = p.team?.color || '#888';
+                ctx.beginPath();
+                ctx.arc(p.x || 0, p.y || 0, 60, 0, Math.PI * 2); // Radius relative to world scale
+                ctx.fill();
+            });
+
+            // Draw Self
+            ctx.fillStyle = '#ef4444'; // Red for self
+            ctx.beginPath();
+            ctx.arc(gameState.current.x, gameState.current.y, 80, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+
+            ctx.restore();
+
             // 6. Rain Visual Overlay
             if (weather === 'rainy') {
                 ctx.save();
@@ -741,11 +794,22 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ref={canvasRef}
                 width={1000}
                 height={1000}
-                className="max-h-[85vh] aspect-square bg-slate-900 shadow-2xl rounded-full border-[20px] border-slate-800"
+                className="max-h-[95vh] aspect-square bg-slate-900 shadow-2xl rounded-3xl border-4 border-slate-800"
                 style={{ cursor: 'none' }}
             />
 
-            <div className="absolute bottom-8 text-slate-500 font-bold text-sm uppercase tracking-widest animate-pulse">
+            <button
+                onClick={() => {
+                    if (confirm('정말 레이스를 포기하고 나가시겠습니까?')) {
+                        onLeave();
+                    }
+                }}
+                className="absolute bottom-10 left-10 bg-red-600/80 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest backdrop-blur-md transition-all active:scale-95 border border-red-500/50 hover:border-red-500 z-50 pointer-events-auto shadow-lg flex items-center gap-2"
+            >
+                <Flag size={18} /> EXIT PIT
+            </button>
+
+            <div className="absolute bottom-8 text-slate-500 font-bold text-sm uppercase tracking-widest animate-pulse pointer-events-none">
                 Use Arrow Keys to Drive
             </div>
         </div>

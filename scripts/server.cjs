@@ -445,6 +445,7 @@ io.on('connection', (socket) => {
   socket.on('joinRoom', ({ roomId, player }) => {
     const room = rooms.get(roomId);
     if (!room) return socket.emit('error', 'Room not found');
+    if (room.status !== 'lobby') return socket.emit('error', 'Game in progress');
     if (room.players.length >= 4) return socket.emit('error', 'Room full');
 
     const newPlayer = { ...player, id: socket.id, isReady: false, x: 0, y: 0, rotation: 0, lap: 1, finished: false };
