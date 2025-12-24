@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { CarSetup, TrackData, SimulationResult, TelemetryPoint, TireCompound, Team, Driver, Language, CarLivery } from './types';
-import { DEFAULT_SETUP, TRACKS, TRANSLATIONS, getTeamDefaultLivery } from './constants';
+import { DEFAULT_SETUP, TRACKS, TRANSLATIONS, getTeamDefaultLivery, TEAMS, DRIVERS } from './constants';
 import CarSetupPanel from './components/CarSetupPanel';
 import TrackSelector from './components/TrackSelector';
 import TeamDriverSelector from './components/TeamDriverSelector';
@@ -17,19 +17,49 @@ import { Trophy, Clock, ArrowUp, ArrowDown, History, Disc, Activity, Cpu, Globe,
 import { socket } from './services/socket';
 
 const App: React.FC = () => {
-    const [view, setView] = useState<'solo' | 'multi' | 'board'>('solo');
-    const [setup, setSetup] = useState<CarSetup>(DEFAULT_SETUP);
-    const [selectedTrack, setSelectedTrack] = useState<TrackData>(TRACKS[0]);
-    const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-    const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+    const [view, setView] = useState<'solo' | 'multi' | 'board'>(() => (localStorage.getItem('f1_view') as any) || 'solo');
+    const [setup, setSetup] = useState<CarSetup>(() => {
+        const saved = localStorage.getItem('f1_solo_setup');
+        return saved ? JSON.parse(saved) : DEFAULT_SETUP;
+    });
+    const [selectedTrack, setSelectedTrack] = useState<TrackData>(() => {
+        const saved = localStorage.getItem('f1_solo_track_id');
+        return TRACKS.find(t => t.id === saved) || TRACKS[0];
+    });
+    const [selectedTeam, setSelectedTeam] = useState<Team | null>(() => {
+        const saved = localStorage.getItem('f1_solo_team_id');
+        return saved ? (TEAMS.find(t => t.id === saved) || null) : null;
+    });
+    const [selectedDriver, setSelectedDriver] = useState<Driver | null>(() => {
+        const saved = localStorage.getItem('f1_solo_driver_id');
+        return saved ? (DRIVERS.find(d => d.id === saved) || null) : null;
+    });
     const [isSimulating, setIsSimulating] = useState(false);
     const [simResult, setSimResult] = useState<SimulationResult | null>(null);
     const [history, setHistory] = useState<SimulationResult[]>([]);
-    const [lang, setLang] = useState<Language>('ko');
+    const [lang, setLang] = useState<Language>(() => (localStorage.getItem('f1_lang') as any) || 'ko');
 
     // Livery State
-    const [livery, setLivery] = useState<CarLivery>(getTeamDefaultLivery(null));
+    const [livery, setLivery] = useState<CarLivery>(() => {
+        const saved = localStorage.getItem('f1_solo_livery');
+        return saved ? JSON.parse(saved) : getTeamDefaultLivery(null);
+    });
     const [showLiveryEditor, setShowLiveryEditor] = useState(false);
+
+    // Persistence Effects
+    useEffect(() => { localStorage.setItem('f1_view', view); }, [view]);
+    useEffect(() => { localStorage.setItem('f1_lang', lang); }, [lang]);
+    useEffect(() => { localStorage.setItem('f1_solo_setup', JSON.stringify(setup)); }, [setup]);
+    useEffect(() => { localStorage.setItem('f1_solo_track_id', selectedTrack.id); }, [selectedTrack]);
+    useEffect(() => {
+        if (selectedTeam) localStorage.setItem('f1_solo_team_id', selectedTeam.id);
+        else localStorage.removeItem('f1_solo_team_id');
+    }, [selectedTeam]);
+    useEffect(() => {
+        if (selectedDriver) localStorage.setItem('f1_solo_driver_id', selectedDriver.id);
+        else localStorage.removeItem('f1_solo_driver_id');
+    }, [selectedDriver]);
+    useEffect(() => { localStorage.setItem('f1_solo_livery', JSON.stringify(livery)); }, [livery]);
 
     // Ref for automatic scrolling
     const resultsRef = useRef<HTMLDivElement>(null);

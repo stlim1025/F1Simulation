@@ -70,6 +70,15 @@ try {
     connectionTimeoutMillis: 5000 // 5초로 증가
   });
 
+  // Handle unexpected errors on idle clients
+  pool.on('error', (err) => {
+    console.error('[DB] Unexpected error on idle client:', err.message);
+    if (err.message.includes('timeout') || err.message.includes('terminated')) {
+      console.log('[DB] Switching to memory mode temporarily.');
+      dbType = 'memory';
+    }
+  });
+
   pool.connect()
     .then(client => {
       console.log('[DB] ✅ Connected to PostgreSQL');
