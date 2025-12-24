@@ -43,6 +43,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const playersRef = useRef<MPPlayer[]>(room.players);
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
+    const lastTimeRef = useRef<number>(performance.now());
 
     // Initial position is stored here
     const startPosRef = useRef({ x: 500, y: 800 });
@@ -242,14 +243,23 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         const ctx = canvas?.getContext('2d');
         let animationFrameId: number;
 
-        const render = () => {
+        const render = (time: number = performance.now()) => {
             if (!ctx || !canvas) return;
+
+            // Normalize to 60fps (dt = 1 means 16.67ms passed)
+            // If running at 144Hz, dt will be ~0.42. 
+            // This ensures consistent speed regardless of monitor refresh rate.
+            const dt = (time - lastTimeRef.current) / (1000 / 60);
+            lastTimeRef.current = time;
+
+            // Limit dt to prevent huge skips (e.g. if the tab was suspended)
+            const dtClamped = Math.min(dt, 2.0);
 
             // 1. Physics Update
             if (!isFinishedRef.current && room.status === 'racing') {
                 // Movement
-                if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL;
-                if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL;
+                if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL * dtClamped;
+                if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL * dtClamped;
 
                 // Setup-based Physics Calculations
                 const avgWing = (me.setup.frontWing + me.setup.rearWing) / 2;
@@ -287,14 +297,14 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     // effectiveMaxSpeed *= hasWetTires ? 0.95 : 0.85;
                 }
 
-                // Friction
-                gameState.current.speed *= FRICTION;
+                // Friction (Consistent decrease over time)
+                gameState.current.speed *= Math.pow(FRICTION, dtClamped);
 
                 // Rotation (Only if moving)
                 if (Math.abs(gameState.current.speed) > 0.05) {
                     const rotDir = gameState.current.speed > 0 ? 1 : -1;
-                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= effectiveTurnSpeed * rotDir;
-                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += effectiveTurnSpeed * rotDir;
+                    if (keysPressed.current['ArrowLeft']) gameState.current.rotation -= effectiveTurnSpeed * rotDir * dtClamped;
+                    if (keysPressed.current['ArrowRight']) gameState.current.rotation += effectiveTurnSpeed * rotDir * dtClamped;
                 }
 
                 // Speed Caps
@@ -315,12 +325,15 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                 // Interpolate current velocity towards target (Inertia)
                 // NewV = OldV + (Target - OldV) * Grip
-                gameState.current.vx += (targetVx - gameState.current.vx) * grip;
-                gameState.current.vy += (targetVy - gameState.current.vy) * grip;
+                // For dt, we use a robust interpolation: 1 - pow(1 - grip, dt)
+                const gripDt = 1 - Math.pow(1 - Math.max(0, Math.min(0.99, grip)), dtClamped);
+                gameState.current.vx += (targetVx - gameState.current.vx) * gripDt;
+                gameState.current.vy += (targetVy - gameState.current.vy) * gripDt;
 
                 // Update Position with Vector
-                const nextX = gameState.current.x + gameState.current.vx;
-                const nextY = gameState.current.y + gameState.current.vy;
+                // Since vx/vy represent "pixels per normalized frame", we multiply by dtClamped
+                const nextX = gameState.current.x + gameState.current.vx * dtClamped;
+                const nextY = gameState.current.y + gameState.current.vy * dtClamped;
 
                 // 2. Map Boundary Check
                 // World is now 4000x4000, so center is 2000, 2000. 
@@ -562,9 +575,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     ctx.lineTo(p.x + p.speed * 0.1, p.y + p.length);
                     ctx.stroke();
 
-                    // Update position
-                    p.y += p.speed;
-                    p.x += p.speed * 0.1;
+                    // Update position with dt
+                    p.y += p.speed * dtClamped;
+                    p.x += p.speed * 0.1 * dtClamped;
 
                     // Reset if out of screen
                     if (p.y > canvas.height) {
