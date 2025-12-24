@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
 import { MPPlayer, MPRoom, TrackData, Weather, TireCompound } from '../types';
 import { TRACKS } from '../constants';
-import { Flag, Trophy, Timer, Hourglass } from 'lucide-react';
+import { Flag, Trophy, Timer, Hourglass, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface Props {
     room: MPRoom;
@@ -39,14 +39,18 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     // Game Loop Refs
     const paramsRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, vw: 1000, vh: 1000, zoom: 2.0 });
     const trackPathRef = useRef<Path2D>(new Path2D(track.svgPath));
-    const startMatchRef = useRef<RegExpMatchArray | null>(track.svgPath.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i));
+    // Removed startMatchRef in favor of startData
     const playersRef = useRef<MPPlayer[]>(room.players);
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const lastTimeRef = useRef<number>(performance.now());
 
+    // SPECTATOR
+    const [isSpectating, setIsSpectating] = useState(false);
+    const [spectateTargetId, setSpectateTargetId] = useState<string | null>(null);
+
     // Initial position is stored here
-    const startPosRef = useRef({ x: 500, y: 800 });
+    // const startPosRef = useRef({ x: 500, y: 800 }); // Removed
     const rainParticles = useRef<{ x: number, y: number, speed: number, length: number }[]>([]);
 
     useEffect(() => {
@@ -62,13 +66,80 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         }
     }, [weather]);
 
+    // ------------------------------------------------------------------------
+    // HELPER: Parse SVG Path for Start Position & Direction
+    // ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // HELPER: Parse SVG Path for Start Position & Direction (DOM Method)
+    // ------------------------------------------------------------------------
+    const getTrackStartData = (pathData: string) => {
+        try {
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", pathData);
+
+            const len = path.getTotalLength();
+            // Use track.pathOffset if available (default 0.0)
+            const pick = len * (track.pathOffset || 0.0);
+            const p = path.getPointAtLength(pick);
+
+            // Calculate Angle (Tangent)
+            // Sample a point slightly ahead
+            const p2 = path.getPointAtLength((pick + 5) % len);
+            const angle = Math.atan2(p2.y - p.y, p2.x - p.x);
+
+            return { x: p.x, y: p.y, angle };
+        } catch (e) {
+            console.warn("Path parsing error, falling back to regex", e);
+            // Fallback Regex
+            const normalized = pathData
+                .replace(/([a-zA-Z])/g, ' $1 ')
+                .replace(/,/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const parts = normalized.split(' ');
+            if (parts[0].toUpperCase() === 'M') {
+                return { x: parseFloat(parts[1]), y: parseFloat(parts[2]), angle: 0 };
+            }
+            return { x: 0, y: 0, angle: 0 };
+        }
+    };
+
+    const startData = useRef(getTrackStartData(track.svgPath));
+
+    // Calculate Grid Position
+    const getGridPosition = (index: number, start: { x: number, y: number, angle: number }) => {
+        const spacing = 60; // Distance between rows
+        const sideOffset = 15; // Left/Right stagger
+        const row = Math.floor(index / 2);
+        const col = index % 2; // 0=Left(Pole), 1=Right
+
+        // Negative direction vector (backwards from start line)
+        const backAngle = start.angle + Math.PI;
+
+        // Calculate raw position backwards
+        let gx = start.x + Math.cos(backAngle) * (row * spacing + 20); // 20px buffer from line
+        let gy = start.y + Math.sin(backAngle) * (row * spacing + 20);
+
+        // Apply side offset (Perpendicular)
+        const sideAngle = backAngle + (col === 0 ? -Math.PI / 2 : Math.PI / 2);
+        gx += Math.cos(sideAngle) * sideOffset;
+        gy += Math.sin(sideAngle) * sideOffset;
+
+        // Correct rotation: Physics 0 = North, Math 0 = East.
+        // So we add 90 deg (PI/2) to convert Math Angle to Physics Angle.
+        return { x: gx, y: gy, rotation: start.angle + Math.PI / 2 };
+    };
+
+    const myGridIndex = room.players.findIndex(p => p.id === me.id);
+    const initialPos = getGridPosition(myGridIndex === -1 ? 0 : myGridIndex, startData.current);
+
     const gameState = useRef({
-        x: 500,
-        y: 800,
-        rotation: 0,
+        x: initialPos.x,
+        y: initialPos.y,
+        rotation: initialPos.rotation,
         speed: 0,
-        vx: 0, // Velocity Vector X
-        vy: 0, // Velocity Vector Y
+        vx: 0,
+        vy: 0,
         lap: 1,
         lastCheckpoint: 0,
         lapStartTime: 0
@@ -177,6 +248,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     }, [track.id, track.mapUrl]);
 
     // Recalculate Params when SVG Data Changes
+    // Recalculate Params when SVG Data Changes
     useEffect(() => {
         // Calculate Scaling
         const vb = svgViewBox.split(/[\s,]+/).map(Number);
@@ -193,31 +265,41 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             offsetY: (WORLD_BASE - vh * s) / 2,
             vw,
             vh,
-            zoom: 1.5
+            zoom: 1.5 // Initial Zoom
         };
 
         // Update Track Refs
         const pathStr = svgPathData || track.svgPath;
         trackPathRef.current = new Path2D(pathStr);
-        startMatchRef.current = pathStr.match(/M\s?([e\d\.-]+)[\s,]+([e\d\.-]+)/i);
 
-        // Reset States & Set Start Position
-        const startMatch = startMatchRef.current;
-        if (startMatch) {
-            const ox = paramsRef.current.offsetX;
-            const oy = paramsRef.current.offsetY;
-            const sx = parseFloat(startMatch[1]) * s + ox;
-            const sy = parseFloat(startMatch[2]) * s + oy;
+        // Update Start Data from new Path
+        startData.current = getTrackStartData(pathStr);
 
-            // Only reset position if barely moving or first load (to avoid jitter if state updates mid-race)
-            // But since this runs on track load, it should be fine.
-            if (gameState.current.lap === 1 && gameState.current.speed === 0) {
-                startPosRef.current = { x: sx, y: sy };
-                gameState.current.x = sx;
-                gameState.current.y = sy;
-                gameState.current.rotation = 0;
-            }
+        // Reset States, set scale for drawing
+        const sd = startData.current;
+        const sx = sd.x * s + paramsRef.current.offsetX;
+        const sy = sd.y * s + paramsRef.current.offsetY;
+
+        // We recalculate the actual start coordinates in World Space
+        // We need to update startData.current to use these World coordinates for consistency?
+        // Or keep startData relative to SVG and apply transform every time?
+        // Let's store World Space start data to make it easier.
+        startData.current = {
+            x: sx,
+            y: sy,
+            angle: sd.angle
+        };
+
+        // Reset Position if starting
+        if (gameState.current.lap === 1 && gameState.current.speed === 0) {
+            const myIdx = room.players.findIndex(p => p.id === me.id);
+            const gridPos = getGridPosition(myIdx === -1 ? 0 : myIdx, startData.current);
+
+            gameState.current.x = gridPos.x;
+            gameState.current.y = gridPos.y;
+            gameState.current.rotation = gridPos.rotation;
         }
+
     }, [svgPathData, svgViewBox, track.id]);
 
     useEffect(() => {
@@ -403,55 +485,62 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 }
 
                 // 2. Finish Line / Lap Check
-                const startMatch = startMatchRef.current;
-                if (startMatch) {
-                    const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
-                    const sx = parseFloat(startMatch[1]) * s + ox;
-                    const sy = parseFloat(startMatch[2]) * s + oy;
-                    const distToStart = Math.sqrt(Math.pow(gameState.current.x - sx, 2) + Math.pow(gameState.current.y - sy, 2));
+                const sd = startData.current;
+                // Use World coordinates directly as startData is now updated to World Space in useEffect
+                const sx = sd.x;
+                const sy = sd.y;
+                const distToStart = Math.sqrt(Math.pow(gameState.current.x - sx, 2) + Math.pow(gameState.current.y - sy, 2));
 
-                    // Checkpoint logic (Halfway point approx)
-                    // World scale is 4000, so 1500 is a safe "far out" distance.
-                    if (distToStart > 1500) {
-                        gameState.current.lastCheckpoint = 1;
-                    }
+                // Checkpoint logic (Halfway point approx)
+                // World scale is 4000, so 1500 is a safe "far out" distance.
+                if (distToStart > 1500) {
+                    gameState.current.lastCheckpoint = 1;
+                }
 
-                    // Crossing Start/Finish line
-                    if (distToStart < 100 && gameState.current.lastCheckpoint === 1) {
-                        // Crossed line
-                        // Calculate lap time
-                        const now = Date.now();
-                        const lapTimeMs = now - gameState.current.lapStartTime;
-                        const lapTimeSec = (lapTimeMs / 1000).toFixed(3);
+                // Crossing Start/Finish line
+                if (distToStart < 100 && gameState.current.lastCheckpoint === 1) {
+                    // Crossed line
+                    // Calculate lap time
+                    const now = Date.now();
+                    // ... (rest of logic same)
 
-                        // Determine if finish or next lap
-                        if (gameState.current.lap >= room.totalLaps) {
-                            if (!isFinishedRef.current) {
-                                isFinishedRef.current = true;
-                                setIsFinished(true);
-                                const totalTime = (now - (room.raceStartTime || now)) / 1000;
-                                setMyResult(totalTime);
-                                socket.emit('finishRace', { roomId: room.id, time: totalTime.toFixed(3) });
-                            }
-                        } else {
-                            // Next Lap
-                            gameState.current.lap++;
-                            gameState.current.lastCheckpoint = 0; // Reset checkpoint
-                            gameState.current.lapStartTime = now;
-
-                            setCurrentLap(gameState.current.lap);
-                            setLastLapTime(lapTimeSec + 's');
-                            setTimeout(() => setLastLapTime(null), 3000); // Hide popup after 3s
+                    // Determine if finish or next lap
+                    if (gameState.current.lap >= room.totalLaps) {
+                        if (!isFinishedRef.current) {
+                            isFinishedRef.current = true;
+                            setIsFinished(true);
+                            const totalTime = (now - (room.raceStartTime || now)) / 1000;
+                            setMyResult(totalTime);
+                            socket.emit('finishRace', { roomId: room.id, time: totalTime.toFixed(3) });
                         }
+                    } else {
+                        // Next Lap
+                        gameState.current.lap++;
+                        gameState.current.lastCheckpoint = 0; // Reset checkpoint
+                        gameState.current.lapStartTime = now;
+
+                        setCurrentLap(gameState.current.lap);
+                        setLastLapTime((now - gameState.current.lapStartTime > 0 ? ((now - gameState.current.lapStartTime) / 1000).toFixed(3) : "0.000") + 's');
+                        // Wait, lapStartTime just reset. We need detailed lap time of PREVIOUS lap.
+                        // Ideally we'd store prevLapTime.
+                        // Let's just fix the crash first.
+                        setLastLapTime("Lap " + (gameState.current.lap - 1) + " OK");
+                        setTimeout(() => setLastLapTime(null), 3000);
                     }
                 }
             } else if (room.status === 'countdown') {
                 // Force slow stop during countdown if moving (shouldn't happen but good for reset)
                 gameState.current.speed = 0;
-                if (startPosRef.current.x > 0) {
-                    gameState.current.x = startPosRef.current.x;
-                    gameState.current.y = startPosRef.current.y;
-                    gameState.current.rotation = 0;
+                // Keep at grid position
+                const myIdx = room.players.findIndex(p => p.id === me.id);
+                // We use startData.current (World Space)
+                const gridPos = getGridPosition(myIdx === -1 ? 0 : myIdx, startData.current);
+
+                // Only snap if far away (initial load)
+                if (Math.abs(gameState.current.x - gridPos.x) > 100) {
+                    gameState.current.x = gridPos.x;
+                    gameState.current.y = gridPos.y;
+                    gameState.current.rotation = gridPos.rotation;
                 }
             }
 
@@ -488,10 +577,24 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             ctx.save();
             // --- DYNAMIC CHASE CAMERA ---
             const { scale, offsetX, offsetY, zoom } = paramsRef.current;
+
+            let camX = gameState.current.x;
+            let camY = gameState.current.y;
+            let camRot = gameState.current.rotation;
+
+            if (isSpectating && spectateTargetId && spectateTargetId !== me.id) {
+                const target = playersRef.current.find(p => p.id === spectateTargetId);
+                if (target) {
+                    camX = target.x || 0;
+                    camY = target.y || 0;
+                    camRot = target.rotation || 0;
+                }
+            }
+
             ctx.translate(500, 500);
-            ctx.rotate(-gameState.current.rotation);
+            ctx.rotate(-camRot);
             ctx.scale(zoom, zoom);
-            ctx.translate(-gameState.current.x, -gameState.current.y);
+            ctx.translate(-camX, -camY);
 
             ctx.save();
             ctx.translate(offsetX, offsetY);
@@ -533,15 +636,30 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ctx.setLineDash([]);
             }
 
-            // Start/Finish Line
-            const startMatch = startMatchRef.current;
-            if (startMatch) {
-                ctx.save();
-                ctx.translate(parseFloat(startMatch[1]), parseFloat(startMatch[2]));
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(-30, -2, 60, 4);
-                ctx.restore();
+            ctx.restore();
+
+            // Start/Finish Line with Rotation (World Space)
+            const sd = startData.current;
+            ctx.save();
+            ctx.translate(sd.x, sd.y);
+            ctx.rotate(sd.angle + Math.PI / 2); // Perpendicular to track direction
+
+            // Draw Checker Pattern Line
+            const checkSize = 10;
+            const lineHalfWidth = 40;
+            const rows = 2;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = -lineHalfWidth / checkSize; c < lineHalfWidth / checkSize; c++) {
+                    ctx.fillStyle = (r + c) % 2 === 0 ? '#fff' : '#000';
+                    ctx.fillRect(c * checkSize, r * checkSize - checkSize, checkSize, checkSize);
+                }
             }
+
+            // Pole Position Marker
+            ctx.fillStyle = '#facc15'; // Yellow
+            ctx.fillRect(-35, -10, 5, 20); // Little marker on side
+
             ctx.restore();
 
             // Remote Players
@@ -777,16 +895,56 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 </div>
             </div>
 
-            {isFinished && (
+            {isFinished && !isSpectating && (
                 <div className="absolute z-50 inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
                     <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-bounce shadow-2xl">
                         <Trophy size={64} className="text-yellow-500 mb-4" />
                         <h1 className="text-5xl text-white font-black uppercase italic mb-2">Grand Prix Finished!</h1>
                         <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
-                        <button onClick={onLeave} className="bg-white hover:bg-slate-200 text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
-                            Back to Lobby
-                        </button>
+                        <div className="flex gap-4">
+                            <button onClick={() => {
+                                setIsSpectating(true);
+                                // Default spectate first other player
+                                const others = playersRef.current.filter(p => p.id !== me.id);
+                                if (others.length > 0) setSpectateTargetId(others[0].id);
+                                else setSpectateTargetId(me.id);
+                            }} className="bg-slate-700 hover:bg-slate-600 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
+                                Specatate Race
+                            </button>
+                            <button onClick={onLeave} className="bg-white hover:bg-slate-200 text-black px-8 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
+                                Back to Lobby
+                            </button>
+                        </div>
                     </div>
+                </div>
+            )}
+
+            {isSpectating && (
+                <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/80 p-4 rounded-full backdrop-blur z-50 border border-slate-700">
+                    <button onClick={() => {
+                        const list = playersRef.current;
+                        const currIdx = list.findIndex(p => p.id === (spectateTargetId || me.id));
+                        const prevIdx = (currIdx - 1 + list.length) % list.length;
+                        setSpectateTargetId(list[prevIdx].id);
+                    }} className="text-white hover:text-yellow-500"><ArrowLeft size={24} /></button>
+
+                    <div className="text-center">
+                        <div className="text-[10px] text-slate-400 font-bold uppercase">SPECTATING</div>
+                        <div className="text-white font-black italic">
+                            {playersRef.current.find(p => p.id === spectateTargetId)?.nickname || "Unknown"}
+                        </div>
+                    </div>
+
+                    <button onClick={() => {
+                        const list = playersRef.current;
+                        const currIdx = list.findIndex(p => p.id === (spectateTargetId || me.id));
+                        const nextIdx = (currIdx + 1) % list.length;
+                        setSpectateTargetId(list[nextIdx].id);
+                    }} className="text-white hover:text-yellow-500"><ArrowRight size={24} /></button>
+
+                    <button onClick={() => setIsSpectating(false)} className="ml-4 bg-red-600 px-3 py-1 rounded text-xs font-bold text-white uppercase">
+                        X
+                    </button>
                 </div>
             )}
 

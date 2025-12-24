@@ -503,7 +503,7 @@ export const TRACKS: TrackData[] = [
     svgPath: "M 200 400 L 800 400 L 850 450 L 850 600 L 600 600 C 550 650 550 750 600 800 L 800 800 L 200 800 L 150 750 L 150 450 L 200 400",
     viewBox: "0 0 1000 1000",
     mapUrl: '/src/images/circuit/Miami International Autodrome.svg',
-    pathOffset: 0.0
+    pathOffset: 0.05
   },
   {
     id: 'imola',
