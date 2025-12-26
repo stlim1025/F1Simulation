@@ -42,6 +42,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const [lastLapTime, setLastLapTime] = useState<string | null>(null);
     const [elapsedTime, setElapsedTime] = useState("00:00.000");
     const [rank, setRank] = useState(1);
+    const [currentSpeed, setCurrentSpeed] = useState(0);
 
     // const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0]; // Moved up
 
@@ -163,9 +164,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     });
 
     // Physics Constants (Scaled for 4000x4000 world)
-    const ACCEL = 0.35;
-    const MAX_SPEED = 12.0;
-    const FRICTION = 0.96;
+    const ACCEL = 0.10;
+    const MAX_SPEED = 18.0;
+    const FRICTION = 0.992;
     const TURN_SPEED = 0.05;
     const TRACK_WIDTH = 80;
 
@@ -486,7 +487,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             if (!isFinishedRef.current && room.status === 'racing') {
                 // Movement
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL * dtClamped;
-                if (keysPressed.current['ArrowDown']) gameState.current.speed -= ACCEL * dtClamped;
+
+                if (keysPressed.current['ArrowDown']) {
+                    if (gameState.current.speed > 0.1) {
+                        // Brake (Weaker for longer stopping distance)
+                        gameState.current.speed -= ACCEL * 0.7 * dtClamped;
+                        if (gameState.current.speed < 0) gameState.current.speed = 0;
+                    } else {
+                        // Reverse
+                        gameState.current.speed -= ACCEL * 0.4 * dtClamped;
+                    }
+                }
 
                 // Setup-based Physics Calculations
                 const avgWing = (me.setup.frontWing + me.setup.rearWing) / 2;
@@ -753,6 +764,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             });
             const myRank = sortedPlayers.findIndex(p => p.id === socket.id) + 1;
             setRank(myRank);
+            setCurrentSpeed(gameState.current.speed);
 
             // 5. Draw
             ctx.fillStyle = '#0f172a';
@@ -1200,13 +1212,29 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 style={{ cursor: 'none' }}
             />
 
+            {/* SPEEDOMETER */}
+            <div className="absolute bottom-28 left-10 bg-black/60 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[120px] pointer-events-none z-50">
+                <div className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em] mb-1">SPEED</div>
+                <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-black text-white italic leading-none">{Math.round(Math.abs(currentSpeed) * 25)}</span>
+                    <span className="text-slate-500 font-black text-xs italic">KM/H</span>
+                </div>
+                {/* Speed Bar Visualizer */}
+                <div className="w-full h-1 bg-slate-800 rounded-full mt-2 overflow-hidden">
+                    <div
+                        className={`h-full transition-all duration-75 ${currentSpeed < 0 ? 'bg-blue-500' : 'bg-red-600'}`}
+                        style={{ width: `${Math.min(100, (Math.abs(currentSpeed) / MAX_SPEED) * 100)}%` }}
+                    />
+                </div>
+            </div>
+
             <button
                 onClick={() => {
                     if (confirm('정말 레이스를 포기하고 나가시겠습니까?')) {
                         onLeave();
                     }
                 }}
-                className="absolute bottom-10 left-10 bg-red-600/80 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest backdrop-blur-md transition-all active:scale-95 border border-red-500/50 hover:border-red-500 z-50 pointer-events-auto shadow-lg flex items-center gap-2"
+                className="absolute bottom-10 left-10 bg-red-600/80 hover:bg-red-600 text-white px-6 py-4 rounded-xl font-black uppercase tracking-widest backdrop-blur-md transition-all active:scale-95 border border-red-500/50 hover:border-red-500 z-50 pointer-events-auto shadow-lg flex items-center gap-2"
             >
                 <Flag size={18} /> EXIT PIT
             </button>
