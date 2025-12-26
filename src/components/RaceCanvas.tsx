@@ -4,6 +4,13 @@ import { MPPlayer, MPRoom, TrackData, Weather, TireCompound } from '../types';
 import { TRACKS } from '../constants';
 import { Flag, Trophy, Timer, Hourglass, ArrowLeft, ArrowRight } from 'lucide-react';
 
+interface BarrierSegment {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+}
+
 interface Props {
     room: MPRoom;
     me: MPPlayer;
@@ -26,6 +33,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const [svgPathData, setSvgPathData] = useState<string>(track.svgPath);
     const [svgViewBox, setSvgViewBox] = useState<string>(track.viewBox);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [barriers, setBarriers] = useState<BarrierSegment[]>([]);
+    const barriersRef = useRef<BarrierSegment[]>([]);
 
     // Race State
     const [currentLap, setCurrentLap] = useState(1);
@@ -281,15 +290,130 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         const sx = sd.x * s + paramsRef.current.offsetX;
         const sy = sd.y * s + paramsRef.current.offsetY;
 
-        // We recalculate the actual start coordinates in World Space
-        // We need to update startData.current to use these World coordinates for consistency?
-        // Or keep startData relative to SVG and apply transform every time?
-        // Let's store World Space start data to make it easier.
+        // Store World Space start data
         startData.current = {
             x: sx,
             y: sy,
             angle: sd.angle
         };
+
+        // Generate Shortcut Barriers (Walls)
+        const generateBarriers = () => {
+            const newBarriers: BarrierSegment[] = [];
+            try {
+                const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                tempPath.setAttribute("d", pathStr);
+                const totalLen = tempPath.getTotalLength();
+                const step = 5; // Higher resolution for SVG space
+                const points: { x: number, y: number, len: number, nx: number, ny: number }[] = [];
+
+                for (let l = 0; l < totalLen; l += step) {
+                    const p = tempPath.getPointAtLength(l);
+                    const p2 = tempPath.getPointAtLength((l + 0.5) % totalLen);
+                    const angle = Math.atan2(p2.y - p.y, p2.x - p.x);
+                    const nx = Math.cos(angle + Math.PI / 2);
+                    const ny = Math.sin(angle + Math.PI / 2);
+
+                    points.push({ x: p.x, y: p.y, len: l, nx, ny });
+                }
+
+                const threshold = 150; // SVG space distance
+                const minPathDist = 300; // SVG space path distance
+                const widthMultiplier = track.trackWidthMultiplier || 1.0;
+                // Position in SVG space (Kerb edge)
+                const halfWidth = 11.5 * widthMultiplier;
+
+                const walledPoints: ({ x: number, y: number, side: number } | null)[] = new Array(points.length).fill(null);
+
+                for (let i = 0; i < points.length; i++) {
+                    const p1 = points[i];
+                    let closestDistSq = Infinity;
+                    let closestPointIdx = -1;
+
+                    for (let j = 0; j < points.length; j++) {
+                        const p2 = points[j];
+                        const pathDistSvg = Math.min(Math.abs(p1.len - p2.len), totalLen - Math.abs(p1.len - p2.len));
+                        if (pathDistSvg < minPathDist) continue;
+
+                        const dx = p1.x - p2.x;
+                        const dy = p1.y - p2.y;
+                        const dSq = dx * dx + dy * dy;
+
+                        if (dSq < threshold * threshold && dSq < closestDistSq) {
+                            // NEW: Direction check
+                            // Real shortcuts usually happen between tracks facing opposite or parallel ways.
+                            // If segments are nearly perpendicular, it's often just a tight bend.
+                            const p1Next = points[(i + 1) % points.length];
+                            const p2Next = points[(j + 1) % points.length];
+                            const t1x = p1Next.x - p1.x;
+                            const t1y = p1Next.y - p1.y;
+                            const t2x = p2Next.x - p2.x;
+                            const t2y = p2Next.y - p2.y;
+
+                            // Dot product of tangents. If > 0, they move in same direction. If < 0, opposite.
+                            // We focus on opposite or clearly separate parallel tracks.
+                            const dotTangents = (t1x * t2x + t1y * t1y) / (Math.sqrt(t1x * t1x + t1y * t1y) * Math.sqrt(t2x * t2x + t2y * t2y) || 1);
+
+                            // Relaxed dotTangent slightly to 0.9 to catch more parallel segments
+                            if (dotTangents < 0.9) {
+                                closestDistSq = dSq;
+                                closestPointIdx = j;
+                            }
+                        }
+                    }
+
+                    if (closestPointIdx !== -1) {
+                        const p2 = points[closestPointIdx];
+                        const dx = p1.x - p2.x;
+                        const dy = p1.y - p2.y;
+                        // Determine which side of p1 faces p2
+                        const dot = (-dx) * p1.nx + (-dy) * p1.ny;
+                        const side = dot > 0 ? 1 : -1;
+
+                        walledPoints[i] = {
+                            x: p1.x + p1.nx * side * halfWidth,
+                            y: p1.y + p1.ny * side * halfWidth,
+                            side: side
+                        };
+                    }
+                }
+
+                // Gap filling pass (fill single missing points to ensure continuity)
+                for (let i = 0; i < points.length; i++) {
+                    if (!walledPoints[i]) {
+                        const prev = (i - 1 + points.length) % points.length;
+                        const next = (i + 1) % points.length;
+                        if (walledPoints[prev] && walledPoints[next] && walledPoints[prev].side === walledPoints[next].side) {
+                            walledPoints[i] = {
+                                x: (walledPoints[prev].x + walledPoints[next].x) / 2,
+                                y: (walledPoints[prev].y + walledPoints[next].y) / 2,
+                                side: walledPoints[prev].side
+                            };
+                        }
+                    }
+                }
+
+                // Create segments from continuous walled points
+                for (let i = 0; i < points.length; i++) {
+                    const next = (i + 1) % points.length;
+                    const pCurrent = walledPoints[i];
+                    const pNext = walledPoints[next];
+                    if (pCurrent && pNext && pCurrent.side === pNext.side) {
+                        newBarriers.push({
+                            x1: pCurrent.x,
+                            y1: pCurrent.y,
+                            x2: pNext.x,
+                            y2: pNext.y
+                        });
+                    }
+                }
+            } catch (e) { console.error("Barrier generation error", e); }
+            return newBarriers;
+        };
+
+        const generatedBarriers = generateBarriers();
+        setBarriers(generatedBarriers);
+        barriersRef.current = generatedBarriers;
 
         // Reset Position if starting
         if (gameState.current.lap === 1 && gameState.current.speed === 0) {
@@ -330,7 +454,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             if (!ctx || !canvas) return;
 
             // Normalize to 60fps (dt = 1 means 16.67ms passed)
-            // If running at 144Hz, dt will be ~0.42. 
+            // If running at 144Hz, dt will be ~0.42.
             // This ensures consistent speed regardless of monitor refresh rate.
             const dt = (time - lastTimeRef.current) / (1000 / 60);
             lastTimeRef.current = time;
@@ -419,7 +543,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 const nextY = gameState.current.y + gameState.current.vy * dtClamped;
 
                 // 2. Map Boundary Check
-                // World is now 4000x4000, so center is 2000, 2000. 
+                // World is now 4000x4000, so center is 2000, 2000.
                 // Increased radius significantly to prevent cutting off corners of square tracks.
                 const WORLD_CENTER = 2000;
                 const WORLD_RADIUS = 3500;
@@ -462,6 +586,48 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     gameState.current.x = cx;
                     gameState.current.y = cy;
                 }
+
+                // 2.1 Shortcut Barrier Collision (Hard Walls)
+                const { scale: sColl, offsetX: oxColl, offsetY: oyColl } = paramsRef.current;
+                barriersRef.current.forEach(b => {
+                    const cx = gameState.current.x;
+                    const cy = gameState.current.y;
+
+                    // Convert SVG barrier coordinates to World coordinates for collision
+                    const bx1 = b.x1 * sColl + oxColl;
+                    const by1 = b.y1 * sColl + oyColl;
+                    const bx2 = b.x2 * sColl + oxColl;
+                    const by2 = b.y2 * sColl + oyColl;
+
+                    // Line segment distances
+                    const l2 = (bx1 - bx2) ** 2 + (by1 - by2) ** 2;
+                    if (l2 === 0) return;
+                    let t = ((cx - bx1) * (bx2 - bx1) + (cy - by1) * (by2 - by1)) / l2;
+                    t = Math.max(0, Math.min(1, t));
+                    const projX = bx1 + t * (bx2 - bx1);
+                    const projY = by1 + t * (by2 - by1);
+
+                    const dist = Math.sqrt((cx - projX) ** 2 + (cy - projY) ** 2);
+                    const COLLISION_RADIUS = 12; // Adjusted for car body width
+
+                    if (dist < COLLISION_RADIUS) {
+                        // Push out
+                        const nx = (cx - projX) / dist || 1;
+                        const ny = (cy - projY) / dist || 0;
+                        const overlap = COLLISION_RADIUS - dist;
+
+                        gameState.current.x += nx * overlap;
+                        gameState.current.y += ny * overlap;
+
+                        // Bounce physics
+                        const dot = gameState.current.vx * nx + gameState.current.vy * ny;
+                        if (dot < 0) {
+                            gameState.current.vx -= 1.5 * dot * nx; // Increased bounce
+                            gameState.current.vy -= 1.5 * dot * ny;
+                            gameState.current.speed *= 0.4; // Lose more speed on hit
+                        }
+                    }
+                });
 
                 // 3. Collision / Track Boundary Check
                 if (ctx) {
@@ -639,6 +805,45 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ctx.setLineDash([10, 10]);
                 ctx.stroke(trackPathRef.current);
                 ctx.setLineDash([]);
+
+                // 4. Shortcut Walls - Replace Kerbs with Barriers
+                barriers.forEach(b => {
+                    // Concrete Base Shadow
+                    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+                    ctx.lineWidth = 4 * widthMultiplier;
+                    ctx.beginPath();
+                    ctx.moveTo(b.x1, b.y1);
+                    ctx.lineTo(b.x2, b.y2);
+                    ctx.stroke();
+
+                    // Main Wall Body (Bright Concrete)
+                    ctx.strokeStyle = '#e2e8f0';
+                    ctx.lineWidth = 2 * widthMultiplier;
+                    ctx.beginPath();
+                    ctx.moveTo(b.x1, b.y1);
+                    ctx.lineTo(b.x2, b.y2);
+                    ctx.stroke();
+
+                    // Top Safety Pattern (Yellow/Black Hazards)
+                    ctx.save();
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeStyle = '#facc15'; // Yellow
+                    ctx.lineWidth = 1.5 * widthMultiplier;
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#000000'; // Black
+                    ctx.lineDashOffset = 4;
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Red/White Guardrail Top
+                    ctx.save();
+                    ctx.setLineDash([10, 10]);
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.lineWidth = 0.5 * widthMultiplier;
+                    ctx.stroke();
+                    ctx.restore();
+                });
             }
 
             ctx.restore();
@@ -709,6 +914,20 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.stroke(trackPathRef.current);
+            ctx.restore();
+
+            // Draw Shortcut Barriers on Minimap
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+            ctx.strokeStyle = '#f87171'; // Red
+            ctx.lineWidth = 30 / scale; // Normalized width
+            barriers.forEach(b => {
+                ctx.beginPath();
+                ctx.moveTo(b.x1, b.y1);
+                ctx.lineTo(b.x2, b.y2);
+                ctx.stroke();
+            });
             ctx.restore();
 
             // Draw Rivals
