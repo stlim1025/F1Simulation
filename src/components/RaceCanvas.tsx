@@ -675,8 +675,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     ctx.restore();
 
                     if (!isOnTrack) {
-                        gameState.current.speed *= 0.85;
-                        const GRASS_MAX_SPEED = MAX_SPEED * 0.3;
+                        gameState.current.speed *= 0.92; // Smoother grass slowing
+                        const GRASS_MAX_SPEED = MAX_SPEED * 0.5; // Increased from 0.3
                         if (Math.abs(gameState.current.speed) > GRASS_MAX_SPEED) {
                             gameState.current.speed = GRASS_MAX_SPEED * (gameState.current.speed > 0 ? 1 : -1);
                         }
@@ -706,11 +706,18 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     // Determine if finish or next lap
                     if (gameState.current.lap >= room.totalLaps) {
                         if (!isFinishedRef.current) {
-                            isFinishedRef.current = true;
-                            setIsFinished(true);
                             const totalTime = (now - (room.raceStartTime || now)) / 1000;
                             setMyResult(totalTime);
                             socket.emit('finishRace', { roomId: room.id, time: totalTime.toFixed(3) });
+
+                            // Move car forward slightly to clear the line for others
+                            // 200 units in the current direction
+                            gameState.current.x += Math.sin(gameState.current.rotation) * 200;
+                            gameState.current.y -= Math.cos(gameState.current.rotation) * 200;
+                            gameState.current.speed = 0;
+
+                            isFinishedRef.current = true;
+                            setIsFinished(true);
                         }
                     } else {
                         // Next Lap
