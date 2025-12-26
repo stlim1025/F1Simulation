@@ -57,6 +57,13 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     // SPECTATOR
     const [isSpectating, setIsSpectating] = useState(false);
     const [spectateTargetId, setSpectateTargetId] = useState<string | null>(null);
+    const isSpectatingRef = useRef(false);
+    const spectateTargetIdRef = useRef<string | null>(null);
+    const weatherRef = useRef<Weather>(weather);
+
+    useEffect(() => { isSpectatingRef.current = isSpectating; }, [isSpectating]);
+    useEffect(() => { spectateTargetIdRef.current = spectateTargetId; }, [spectateTargetId]);
+    useEffect(() => { weatherRef.current = weather; }, [weather]);
 
     // Initial position is stored here
     // const startPosRef = useRef({ x: 500, y: 800 }); // Removed
@@ -301,9 +308,19 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         const generateBarriers = () => {
             const newBarriers: BarrierSegment[] = [];
             try {
+                const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                tempSvg.style.position = "absolute";
+                tempSvg.style.visibility = "hidden";
+                tempSvg.style.pointerEvents = "none";
+                document.body.appendChild(tempSvg);
+
                 const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 tempPath.setAttribute("d", pathStr);
+                tempSvg.appendChild(tempPath);
+
                 const totalLen = tempPath.getTotalLength();
+                if (totalLen === 0) throw new Error("SVG Path length is 0");
+
                 const step = 5; // Higher resolution for SVG space
                 const points: { x: number, y: number, len: number, nx: number, ny: number }[] = [];
 
@@ -316,6 +333,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                     points.push({ x: p.x, y: p.y, len: l, nx, ny });
                 }
+
+                // Cleanup
+                document.body.removeChild(tempSvg);
 
                 const threshold = 150; // SVG space distance
                 const minPathDist = 300; // SVG space path distance
@@ -352,7 +372,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                             // Dot product of tangents. If > 0, they move in same direction. If < 0, opposite.
                             // We focus on opposite or clearly separate parallel tracks.
-                            const dotTangents = (t1x * t2x + t1y * t1y) / (Math.sqrt(t1x * t1x + t1y * t1y) * Math.sqrt(t2x * t2x + t2y * t2y) || 1);
+                            const dotTangents = (t1x * t2x + t1y * t2y) / (Math.sqrt(t1x * t1x + t1y * t1y) * Math.sqrt(t2x * t2x + t2y * t2y) || 1);
 
                             // Relaxed dotTangent slightly to 0.9 to catch more parallel segments
                             if (dotTangents < 0.9) {
@@ -739,7 +759,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // Track Background (Grass)
-            ctx.fillStyle = weather === 'rainy' ? '#064e3b' : '#14532d'; // Darker green if rainy
+            ctx.fillStyle = weatherRef.current === 'rainy' ? '#064e3b' : '#14532d'; // Darker green if rainy
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.save();
@@ -750,8 +770,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             let camY = gameState.current.y;
             let camRot = gameState.current.rotation;
 
-            if (isSpectating && spectateTargetId && spectateTargetId !== me.id) {
-                const target = playersRef.current.find(p => p.id === spectateTargetId);
+            if (isSpectatingRef.current && spectateTargetIdRef.current && spectateTargetIdRef.current !== me.id) {
+                const target = playersRef.current.find(p => p.id === spectateTargetIdRef.current);
                 if (target) {
                     camX = target.x || 0;
                     camY = target.y || 0;
@@ -807,7 +827,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ctx.setLineDash([]);
 
                 // 4. Shortcut Walls - Replace Kerbs with Barriers
-                barriers.forEach(b => {
+                barriersRef.current.forEach(b => {
                     // Concrete Base Shadow
                     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
                     ctx.lineWidth = 4 * widthMultiplier;
