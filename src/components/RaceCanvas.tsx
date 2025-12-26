@@ -448,12 +448,26 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
     }, [svgPathData, svgViewBox, track.id]);
 
+    const changeSpectateTarget = (offset: number) => {
+        const list = playersRef.current;
+        if (list.length === 0) return;
+        const currIdx = list.findIndex(p => p.id === (spectateTargetIdRef.current || me.id));
+        const nextIdx = (currIdx + offset + list.length) % list.length;
+        setSpectateTargetId(list[nextIdx].id);
+    };
+
     useEffect(() => {
         // Input Listeners
         const handleKeyDown = (e: KeyboardEvent) => {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
                 e.preventDefault();
             }
+
+            if (isSpectatingRef.current) {
+                if (e.code === 'ArrowLeft') changeSpectateTarget(-1);
+                if (e.code === 'ArrowRight') changeSpectateTarget(1);
+            }
+
             keysPressed.current[e.code] = true;
         };
         const handleKeyUp = (e: KeyboardEvent) => {
@@ -712,9 +726,23 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                             // Move car forward slightly to clear the line for others
                             // 200 units in the current direction
-                            gameState.current.x += Math.sin(gameState.current.rotation) * 200;
-                            gameState.current.y -= Math.cos(gameState.current.rotation) * 200;
+                            const finalX = gameState.current.x + Math.sin(gameState.current.rotation) * 200;
+                            const finalY = gameState.current.y - Math.cos(gameState.current.rotation) * 200;
+                            gameState.current.x = finalX;
+                            gameState.current.y = finalY;
                             gameState.current.speed = 0;
+
+                            // CRITICAL: Sync final position for all players before stopping updates
+                            if (socket.connected) {
+                                socket.emit('playerMove', {
+                                    roomId: room.id,
+                                    x: finalX,
+                                    y: finalY,
+                                    rotation: gameState.current.rotation,
+                                    speed: 0,
+                                    lap: gameState.current.lap
+                                });
+                            }
 
                             isFinishedRef.current = true;
                             setIsFinished(true);
@@ -1160,7 +1188,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
             {isFinished && !isSpectating && (
                 <div className="absolute z-50 inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
-                    <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-bounce shadow-2xl">
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-fade-in shadow-2xl">
                         <Trophy size={64} className="text-yellow-500 mb-4" />
                         <h1 className="text-5xl text-white font-black uppercase italic mb-2">Grand Prix Finished!</h1>
                         <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
@@ -1184,12 +1212,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
             {isSpectating && (
                 <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/80 p-4 rounded-full backdrop-blur z-50 border border-slate-700">
-                    <button onClick={() => {
-                        const list = playersRef.current;
-                        const currIdx = list.findIndex(p => p.id === (spectateTargetId || me.id));
-                        const prevIdx = (currIdx - 1 + list.length) % list.length;
-                        setSpectateTargetId(list[prevIdx].id);
-                    }} className="text-white hover:text-yellow-500"><ArrowLeft size={24} /></button>
+                    <button onClick={() => changeSpectateTarget(-1)} className="text-white hover:text-yellow-500"><ArrowLeft size={24} /></button>
 
                     <div className="text-center">
                         <div className="text-[10px] text-slate-400 font-bold uppercase">SPECTATING</div>
@@ -1198,12 +1221,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                         </div>
                     </div>
 
-                    <button onClick={() => {
-                        const list = playersRef.current;
-                        const currIdx = list.findIndex(p => p.id === (spectateTargetId || me.id));
-                        const nextIdx = (currIdx + 1) % list.length;
-                        setSpectateTargetId(list[nextIdx].id);
-                    }} className="text-white hover:text-yellow-500"><ArrowRight size={24} /></button>
+                    <button onClick={() => changeSpectateTarget(1)} className="text-white hover:text-yellow-500"><ArrowRight size={24} /></button>
 
                     <button onClick={() => setIsSpectating(false)} className="ml-4 bg-red-600 px-3 py-1 rounded text-xs font-bold text-white uppercase">
                         X
