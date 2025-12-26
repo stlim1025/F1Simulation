@@ -83,8 +83,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             const p = path.getPointAtLength(pick);
 
             // Calculate Angle (Tangent)
-            // Sample a point slightly ahead
-            const p2 = path.getPointAtLength((pick + 5) % len);
+            // If track.reverse is true, sample backwards to reverse direction
+            const direction = track.reverse ? -5 : 5;
+            const p2 = path.getPointAtLength((pick + direction + len) % len);
             const angle = Math.atan2(p2.y - p.y, p2.x - p.x);
 
             return { x: p.x, y: p.y, angle };
@@ -466,11 +467,12 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 if (ctx) {
                     const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
                     const trackPath = trackPathRef.current;
+                    const widthMultiplier = track.trackWidthMultiplier || 1.0;
                     ctx.save();
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.translate(ox, oy);
                     ctx.scale(s, s);
-                    ctx.lineWidth = 20; // Reduced to ~5 car widths (20 * 4 = 80 units vs 16 unit car)
+                    ctx.lineWidth = 20 * widthMultiplier; // Apply track width multiplier
 
                     const isOnTrack = ctx.isPointInStroke(trackPath, gameState.current.x, gameState.current.y);
                     ctx.restore();
@@ -610,14 +612,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
 
+                // Apply track-specific width multiplier (default 1.0)
+                const widthMultiplier = track.trackWidthMultiplier || 1.0;
+
                 // 1. Kerbs / Grass Edge (Outer)
                 ctx.strokeStyle = '#ef4444'; // Red Kerb
-                ctx.lineWidth = 22;
+                ctx.lineWidth = 22 * widthMultiplier;
                 ctx.setLineDash([5, 5]);
                 ctx.stroke(trackPathRef.current);
 
                 ctx.strokeStyle = '#fff'; // White Kerb
-                ctx.lineWidth = 22;
+                ctx.lineWidth = 22 * widthMultiplier;
                 ctx.lineDashOffset = 5;
                 ctx.stroke(trackPathRef.current);
                 ctx.setLineDash([]);
@@ -625,7 +630,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                 // 2. Tarmac (Main Road)
                 ctx.strokeStyle = '#1e293b'; // Slate 800
-                ctx.lineWidth = 20; // Reduced to ~5 car widths
+                ctx.lineWidth = 20 * widthMultiplier; // Reduced to ~5 car widths
                 ctx.stroke(trackPathRef.current);
 
                 // 3. Center Line (optional)

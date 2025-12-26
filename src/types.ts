@@ -80,6 +80,8 @@ export interface TrackData {
   viewBox: string;
   mapUrl?: string;
   pathOffset: number;
+  reverse?: boolean; // If true, direction is reversed (car starts facing opposite direction)
+  trackWidthMultiplier?: number; // Multiplier for track width rendering (default 1.0)
 }
 
 export interface TelemetryPoint {
