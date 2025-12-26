@@ -436,6 +436,7 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       totalLaps: totalLaps || 3, // Default 3 laps
       weather: 'sunny', // Default weather
+      isQualifyingEnabled: false, // Default: no qualifying
       players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 1, finished: false }],
       status: 'lobby',
       createdAt: Date.now(),
@@ -596,10 +597,33 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('room:toggleQualifying', ({ roomId, enabled }) => {
+    const room = rooms.get(roomId);
+    if (room && room.hostId === socket.id) {
+      room.isQualifyingEnabled = enabled;
+      io.to(roomId).emit('roomUpdate', room);
+    }
+  });
+
   socket.on('startRace', ({ roomId }) => {
     const room = rooms.get(roomId);
     if (room && room.hostId === socket.id) {
-      // 1. Enter Countdown
+      // If qualifying is enabled and we are in lobby, move to qualifying first
+      if (room.isQualifyingEnabled && room.status === 'lobby') {
+        room.status = 'qualifying';
+        room.raceStartTime = Date.now(); // 타이머를 위해 시작 시간 설정
+        room.players.forEach(p => {
+          p.finished = false;
+          p.finishTime = null;
+          p.qualifyTime = null;
+          p.lap = 1;
+        });
+        io.to(roomId).emit('roomUpdate', room);
+        console.log(`[Race] Qualifying started in ${roomId}`);
+        return;
+      }
+
+      // Start Countdown for the main race
       room.status = 'countdown';
 
       // Reset players for race
@@ -610,11 +634,10 @@ io.on('connection', (socket) => {
       });
 
       io.to(roomId).emit('roomUpdate', room);
-      io.emit('lobbyUpdate', Array.from(rooms.values())); // Update status in lobby
+      io.emit('lobbyUpdate', Array.from(rooms.values()));
 
       console.log(`[Race] Countdown started in ${roomId}`);
 
-      // 2. Start Race after 3 seconds
       setTimeout(() => {
         if (rooms.has(roomId)) {
           room.status = 'racing';
@@ -624,6 +647,49 @@ io.on('connection', (socket) => {
           console.log(`[Race] GO! in ${roomId}`);
         }
       }, 3000);
+    }
+  });
+
+  socket.on('finishQualifying', ({ roomId, time }) => {
+    const room = rooms.get(roomId);
+    if (room && room.status === 'qualifying') {
+      const p = room.players.find(p => p.id === socket.id);
+      if (p && !p.finished) {
+        p.finished = true;
+        p.qualifyTime = parseFloat(time);
+
+        io.to(roomId).emit('playerQualifyFinished', { id: socket.id, time: p.qualifyTime, nickname: p.nickname });
+
+        // If everyone finished qualifying
+        if (room.players.every(pl => pl.finished)) {
+          console.log(`[Race] Qualifying finished in ${roomId}. Sorting grid.`);
+
+          // Sort players by qualifyTime (lower is better)
+          room.players.sort((a, b) => (a.qualifyTime || 9999) - (b.qualifyTime || 9999));
+
+          // Move to countdown automatically after 3 seconds of showing results
+          setTimeout(() => {
+            if (rooms.has(roomId) && room.status === 'qualifying') {
+              room.status = 'countdown';
+              room.players.forEach(pl => {
+                pl.finished = false;
+                pl.finishTime = null;
+                pl.lap = 1;
+              });
+              io.to(roomId).emit('roomUpdate', room);
+
+              setTimeout(() => {
+                if (rooms.has(roomId)) {
+                  room.status = 'racing';
+                  room.raceStartTime = Date.now();
+                  io.to(roomId).emit('raceStarted', room);
+                  io.emit('lobbyUpdate', Array.from(rooms.values()));
+                }
+              }, 3000);
+            }
+          }, 5000);
+        }
+      }
     }
   });
 

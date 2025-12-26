@@ -128,6 +128,7 @@ export interface MPPlayer {
   lap?: number;
   finished?: boolean;
   finishTime?: number;
+  qualifyTime?: number; // Qualifying lap time
   lastResult?: SimulationResult | null;
 }
 
@@ -137,9 +138,10 @@ export interface MPRoom {
   trackId: string;
   hostId: string;
   players: MPPlayer[];
-  status: 'lobby' | 'countdown' | 'racing' | 'finished';
+  status: 'lobby' | 'qualifying' | 'countdown' | 'racing' | 'finished';
   totalLaps: number;
   weather: Weather;
+  isQualifyingEnabled: boolean;
   raceStartTime?: number;
   createdAt: number;
 }

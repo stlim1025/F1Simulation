@@ -43,6 +43,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const [elapsedTime, setElapsedTime] = useState("00:00.000");
     const [rank, setRank] = useState(1);
     const [currentSpeed, setCurrentSpeed] = useState(0);
+    const [qualifyResults, setQualifyResults] = useState<{ id: string, nickname: string, time: number }[]>([]);
 
     // const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0]; // Moved up
 
@@ -65,6 +66,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     useEffect(() => { isSpectatingRef.current = isSpectating; }, [isSpectating]);
     useEffect(() => { spectateTargetIdRef.current = spectateTargetId; }, [spectateTargetId]);
     useEffect(() => { weatherRef.current = weather; }, [weather]);
+    useEffect(() => {
+        if (room.status === 'countdown' || room.status === 'racing' || room.status === 'qualifying') {
+            setIsFinished(false);
+            isFinishedRef.current = false;
+            setMyResult(null);
+            setCurrentLap(1);
+            if (room.status === 'countdown') {
+                setQualifyResults([]); // Clear live timing when moving to main race
+            }
+        }
+    }, [room.status]);
 
     // Initial position is stored here
     // const startPosRef = useRef({ x: 500, y: 800 }); // Removed
@@ -173,7 +185,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     // Timer Logic
     useEffect(() => {
         let interval: NodeJS.Timeout;
-        if (room.status === 'racing' && room.raceStartTime) {
+        if ((room.status === 'racing' || room.status === 'qualifying') && room.raceStartTime) {
             gameState.current.lapStartTime = room.raceStartTime; // Initial lap start time
             interval = setInterval(() => {
                 const now = Date.now();
@@ -444,9 +456,12 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             gameState.current.x = gridPos.x;
             gameState.current.y = gridPos.y;
             gameState.current.rotation = gridPos.rotation;
+            gameState.current.vx = 0;
+            gameState.current.vy = 0;
+            gameState.current.speed = 0;
         }
 
-    }, [svgPathData, svgViewBox, track.id]);
+    }, [svgPathData, svgViewBox, track.id, room.status]);
 
     const changeSpectateTarget = (offset: number) => {
         const list = playersRef.current;
@@ -498,7 +513,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             const dtClamped = Math.min(dt, 2.0);
 
             // 1. Physics Update
-            if (!isFinishedRef.current && room.status === 'racing') {
+            if (!isFinishedRef.current && (room.status === 'racing' || room.status === 'qualifying')) {
                 // Movement
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL * dtClamped;
 
@@ -605,6 +620,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                     // Car Collision Check
                     playersRef.current.forEach(p => {
+                        // Ghost Mode in Qualifying: Disable car-to-car collision
+                        if (room.status === 'qualifying') return;
+
                         if (p.id === meRef.current.id || (p.x === 0 && p.y === 0)) return;
 
                         const dx = cx - (p.x || 0);
@@ -621,10 +639,10 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                             cx += nx * overlap;
                             cy += ny * overlap;
 
-                            // Bounce
-                            gameState.current.speed *= -0.5;
-                            gameState.current.vx *= -0.5;
-                            gameState.current.vy *= -0.5;
+                            // Reduce speed on impact instead of bouncing back
+                            gameState.current.speed *= 0.3;
+                            gameState.current.vx *= 0.3;
+                            gameState.current.vy *= 0.3;
                         }
                     });
 
@@ -713,12 +731,25 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 // Crossing Start/Finish line
                 if (distToStart < 100 && gameState.current.lastCheckpoint === 1) {
                     // Crossed line
-                    // Calculate lap time
                     const now = Date.now();
-                    // ... (rest of logic same)
 
-                    // Determine if finish or next lap
-                    if (gameState.current.lap >= room.totalLaps) {
+                    // 1. Qualifying Logic
+                    if (room.status === 'qualifying') {
+                        if (!isFinishedRef.current) {
+                            const qTime = (now - (gameState.current.lapStartTime || room.raceStartTime || now)) / 1000;
+                            setMyResult(qTime);
+                            socket.emit('finishQualifying', { roomId: room.id, time: qTime.toFixed(3) });
+
+                            // Move out of way
+                            gameState.current.x += Math.sin(gameState.current.rotation) * 200;
+                            gameState.current.y -= Math.cos(gameState.current.rotation) * 200;
+                            gameState.current.speed = 0;
+                            isFinishedRef.current = true;
+                            setIsFinished(true);
+                        }
+                    }
+                    // 2. Main Race Logic
+                    else if (gameState.current.lap >= room.totalLaps) {
                         if (!isFinishedRef.current) {
                             const totalTime = (now - (room.raceStartTime || now)) / 1000;
                             setMyResult(totalTime);
@@ -811,11 +842,12 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
             ctx.save();
             // --- DYNAMIC CHASE CAMERA ---
-            const { scale, offsetX, offsetY, zoom } = paramsRef.current;
+            const { scale, offsetX, offsetY, zoom: baseZoom } = paramsRef.current;
 
             let camX = gameState.current.x;
             let camY = gameState.current.y;
             let camRot = gameState.current.rotation;
+            let speedFactor = Math.abs(gameState.current.speed);
 
             if (isSpectatingRef.current && spectateTargetIdRef.current && spectateTargetIdRef.current !== me.id) {
                 const target = playersRef.current.find(p => p.id === spectateTargetIdRef.current);
@@ -823,13 +855,23 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     camX = target.x || 0;
                     camY = target.y || 0;
                     camRot = target.rotation || 0;
+                    speedFactor = Math.abs(target.speed || 0);
                 }
             }
 
+            // 1. Look-Ahead Offset: Speed-based focus shift
+            // Move camera center forward so car appears lower on screen, showing more track ahead
+            const lookAheadDist = speedFactor * 12;
+            const focusX = camX + Math.sin(camRot) * lookAheadDist;
+            const focusY = camY - Math.cos(camRot) * lookAheadDist;
+
+            // 2. Dynamic Zoom: Zoom out slightly as speed increases for wider FOV
+            const dynamicZoom = baseZoom * (1.0 - Math.min(0.35, (speedFactor / MAX_SPEED) * 0.35));
+
             ctx.translate(500, 500);
             ctx.rotate(-camRot);
-            ctx.scale(zoom, zoom);
-            ctx.translate(-camX, -camY);
+            ctx.scale(dynamicZoom, dynamicZoom);
+            ctx.translate(-focusX, -focusY);
 
             ctx.save();
             ctx.translate(offsetX, offsetY);
@@ -1096,9 +1138,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             }
         });
 
+        socket.on('playerQualifyFinished', (data: any) => {
+            setQualifyResults(prev => {
+                const updated = [...prev, data].sort((a, b) => a.time - b.time);
+                return updated;
+            });
+        });
+
         return () => {
             socket.off('playerMoved');
             socket.off('playerFinished');
+            socket.off('playerQualifyFinished');
         };
     }, []);
 
@@ -1166,7 +1216,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     <h2 className="text-white font-black italic text-xl uppercase">{track.name.en}</h2>
                     <div className="flex items-center gap-2 mt-1">
                         <Flag size={16} className="text-red-500" />
-                        <span className="text-red-500 font-bold text-lg">LAP {currentLap}/{room.totalLaps}</span>
+                        <span className="text-red-500 font-bold text-lg">
+                            {room.status === 'qualifying' ? 'QUALIFYING' : `LAP ${currentLap}/${room.totalLaps}`}
+                        </span>
                     </div>
                     {lastLapTime && (
                         <div className="text-green-500 font-mono font-bold text-sm animate-pulse mt-1">
@@ -1181,17 +1233,43 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 </div>
 
                 <div className="bg-black/50 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[150px] text-right">
-                    <div className="text-slate-400 font-bold text-xs uppercase tracking-widest">POSITION</div>
-                    <div className="text-5xl font-black text-white italic">P{rank}<span className="text-lg text-slate-500">/{room.players.length}</span></div>
+                    <div className="text-slate-400 font-bold text-xs uppercase tracking-widest">{room.status === 'qualifying' ? 'SESSION' : 'POSITION'}</div>
+                    <div className="text-5xl font-black text-white italic">
+                        {room.status === 'qualifying' ? 'Q' : `P${rank}`}
+                        <span className="text-lg text-slate-500">/{room.players.length}</span>
+                    </div>
                 </div>
             </div>
+
+            {/* QUALIFYING RESULTS OVERLAY (SIDE) */}
+            {room.status === 'qualifying' && qualifyResults.length > 0 && (
+                <div className="absolute left-4 top-40 z-20 space-y-2 animate-fade-in pointer-events-none">
+                    <div className="bg-orange-600/90 text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest text-center">Qualy Live Timing</div>
+                    {qualifyResults.map((r, i) => (
+                        <div key={r.id} className="bg-black/60 border border-slate-700 p-2 rounded-lg flex items-center justify-between gap-4 backdrop-blur-sm min-w-[180px]">
+                            <div className="flex items-center gap-2">
+                                <span className="text-orange-500 font-black italic">P{i + 1}</span>
+                                <span className="text-white font-bold text-xs">{r.nickname}</span>
+                            </div>
+                            <span className="text-slate-400 font-mono text-xs">{r.time.toFixed(3)}s</span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {isFinished && !isSpectating && (
                 <div className="absolute z-50 inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
                     <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-fade-in shadow-2xl">
                         <Trophy size={64} className="text-yellow-500 mb-4" />
-                        <h1 className="text-5xl text-white font-black uppercase italic mb-2">Grand Prix Finished!</h1>
+                        <h1 className="text-5xl text-white font-black uppercase italic mb-2">
+                            {room.status === 'qualifying' ? 'Qualifying Finished!' : 'Grand Prix Finished!'}
+                        </h1>
                         <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
+                        {room.status === 'qualifying' && (
+                            <p className="text-orange-500 font-black uppercase tracking-widest mb-6 animate-pulse">
+                                Waiting for other drivers to finish...
+                            </p>
+                        )}
                         <div className="flex gap-4">
                             <button onClick={() => {
                                 setIsSpectating(true);

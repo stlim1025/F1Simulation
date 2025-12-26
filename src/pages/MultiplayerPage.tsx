@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun, Flag } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun, Flag, Timer } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
 import RaceCanvas from '../components/RaceCanvas';
 import TrackSelector from '../components/TrackSelector';
@@ -224,6 +224,11 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     socket.emit('room:changeWeather', { roomId: currentRoom.id, weather });
   };
 
+  const changeQualifying = (enabled: boolean) => {
+    if (!currentRoom) return;
+    socket.emit('room:toggleQualifying', { roomId: currentRoom.id, enabled });
+  };
+
   const sendChatMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!chatInput.trim() || !currentRoom) return;
@@ -269,7 +274,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   }
 
   // --- RACING VIEW ---
-  if (currentRoom && (currentRoom.status === 'racing' || currentRoom.status === 'countdown')) {
+  if (currentRoom && (currentRoom.status === 'racing' || currentRoom.status === 'countdown' || currentRoom.status === 'qualifying')) {
     const me = currentRoom.players.find((p: any) => p.id === socket.id);
     if (!me) return <div className="p-20 text-white">Connecting to race...</div>;
 
@@ -407,7 +412,31 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                         <span className="text-[9px] font-black uppercase">Rain</span>
                       </button>
                     </div>
+                    <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-full border border-slate-700">
+                      <button
+                        onClick={() => changeQualifying(!currentRoom.isQualifyingEnabled)}
+                        className={`p-1 px-3 rounded-full transition-all flex items-center gap-2 ${currentRoom.isQualifyingEnabled ? 'bg-orange-600 text-white shadow-[0_0_10px_rgba(234,88,12,0.4)]' : 'text-slate-400 hover:text-white'}`}
+                        title="Qualifying"
+                      >
+                        <Timer size={12} />
+                        <span className="text-[9px] font-black uppercase">Qualy {currentRoom.isQualifyingEnabled ? 'ON' : 'OFF'}</span>
+                      </button>
+                    </div>
                   </>
+                )}
+                {!isHost && (
+                  <div className="flex items-center gap-2 ml-2">
+                    <div className={`px-2 py-1 rounded flex items-center gap-1.5 border text-[9px] font-black uppercase ${currentRoom.weather === 'rainy' ? 'bg-blue-900/30 text-blue-400 border-blue-800' : 'bg-yellow-900/30 text-yellow-500 border-yellow-800'}`}>
+                      {currentRoom.weather === 'rainy' ? <CloudRain size={10} /> : <Sun size={10} />}
+                      {currentRoom.weather === 'rainy' ? 'Rainy' : 'Sunny'}
+                    </div>
+                    {currentRoom.isQualifyingEnabled && (
+                      <div className="px-2 py-1 rounded flex items-center gap-1.5 border bg-orange-900/30 text-orange-500 border-orange-800 text-[9px] font-black uppercase">
+                        <Timer size={10} />
+                        Qualifying Enabled
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -617,7 +646,19 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           {rooms.map(room => (
             <div key={room.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-7 hover:border-red-500/50 transition-all group relative overflow-hidden flex flex-col h-full shadow-lg">
               <div className="flex justify-between items-start mb-8">
-                <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em]">RACE ROOM</span>
+                <div className="flex flex-col gap-1.5">
+                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase tracking-[0.2em] w-fit">RACE ROOM</span>
+                  <div className="flex gap-1">
+                    <div className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${room.weather === 'rainy' ? 'bg-blue-900/30 text-blue-400 border-blue-800' : 'bg-yellow-900/30 text-yellow-500 border-yellow-800'}`}>
+                      {room.weather === 'rainy' ? 'RAIN' : 'SUN'}
+                    </div>
+                    {room.isQualifyingEnabled && (
+                      <div className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase border bg-orange-900/30 text-orange-500 border-orange-800">
+                        QUALY
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <span className="text-white text-lg font-black font-mono leading-none">{room.players.length}/4</span>
               </div>
               <h3 className="text-2xl font-black text-white mb-2 italic truncate group-hover:text-red-500 transition-colors uppercase">{room.name}</h3>
