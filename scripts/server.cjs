@@ -437,7 +437,7 @@ io.on('connection', (socket) => {
       hostId: socket.id,
       totalLaps: totalLaps || 3, // Default 3 laps
       weather: 'sunny', // Default weather
-      isQualifyingEnabled: false, // Default: no qualifying
+      isQualifyingEnabled: true, // Default: qualifying enabled
       players: [{ ...player, id: socket.id, isReady: true, x: 0, y: 0, rotation: 0, lap: 1, finished: false }],
       status: 'lobby',
       createdAt: Date.now(),
