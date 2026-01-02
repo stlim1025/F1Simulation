@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CarSetup, CarLivery, Language, MPRoom, MPPlayer, Team, TrackData } from '../types';
 import { TRANSLATIONS, TRACKS } from '../constants';
-import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun, Flag, Timer } from 'lucide-react';
+import { Users, Plus, Play, LogIn, UserCircle, UserMinus, Shield, ArrowLeft, RotateCw, Wifi, WifiOff, Crown, Map as MapIcon, X, CheckCircle2, Trophy, MessageSquare, CloudRain, Sun, Flag, Timer, HelpCircle, Laptop, Palette, Settings } from 'lucide-react';
 import CarVisualizer from '../components/CarVisualizer';
 import RaceCanvas from '../components/RaceCanvas';
 import TrackSelector from '../components/TrackSelector';
@@ -25,6 +25,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   const [isConnected, setIsConnected] = useState(false);
 
   const [isSelectingTrack, setIsSelectingTrack] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [myPlayerId, setMyPlayerId] = useState<string>('');
   // const [creationLaps, setCreationLaps] = useState(3); // Removed from here
 
@@ -392,6 +393,13 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-black text-white italic">{currentRoom.name}</h2>
                 {isHost && <Crown size={18} className="text-yellow-500" />}
+                <button
+                  onClick={() => setIsHelpOpen(true)}
+                  className="ml-1 text-slate-500 hover:text-red-500 transition-colors"
+                  title="Room Info"
+                >
+                  <HelpCircle size={18} />
+                </button>
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">
@@ -631,6 +639,70 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
             </div>
           </div>
         )}
+
+        {/* HELP MODAL */}
+        {isHelpOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-fade-in" onClick={() => setIsHelpOpen(false)}>
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+              <div className="p-6 border-b border-slate-800 bg-slate-950 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="bg-red-600/20 p-2 rounded-lg border border-red-500/30">
+                    <HelpCircle className="text-red-500" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-white italic uppercase">{lang === 'ko' ? '멀티플레이어 가이드' : 'Multiplayer Guide'}</h3>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{lang === 'ko' ? '패독 생활을 위한 지침서' : 'Instructions for your Paddock life'}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsHelpOpen(false)} className="text-slate-500 hover:text-white transition-colors p-2 bg-slate-800 rounded-full border border-slate-700">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-8 overflow-y-auto space-y-8 custom-scrollbar bg-slate-900">
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Laptop size={18} className="text-cyan-500" />
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider">{lang === 'ko' ? '자동차 설정 동기화' : 'Car Setup Synchronization'}</h4>
+                  </div>
+                  <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-2xl">
+                    <p className="text-slate-400 text-sm leading-relaxed mb-4">
+                      {lang === 'ko'
+                        ? '현재 솔로 모드에서 설정한 모든 자동차 세팅이 멀티플레이어 환경에 실시간으로 적용됩니다. 메인 메뉴에서 세팅을 변경하면 즉시 반영됩니다.'
+                        : 'Your current solo mode car settings are synchronized in real-time. Changes in the main menu update immediately.'}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 bg-slate-900 px-3 py-2 rounded-xl border border-slate-800">
+                        <Settings size={14} className="text-slate-600" />
+                        {lang === 'ko' ? '성능 패키지 (에어로, 기어비 등)' : 'Performance Setup'}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 bg-slate-900 px-3 py-2 rounded-xl border border-slate-800">
+                        <Palette size={14} className="text-slate-600" />
+                        {lang === 'ko' ? '리버리 및 팀 데칼' : 'Livery and Decals'}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Flag size={18} className="text-red-500" />
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider">{lang === 'ko' ? '레이스 세션 설정' : 'Race Session Settings'}</h4>
+                  </div>
+                  <div className="space-y-3">
+                    <HelpRow icon={<MapIcon size={16} />} title={lang === 'ko' ? '트랙' : 'Track'} desc={lang === 'ko' ? '서킷마다 다른 길이와 코너 특성을 가집니다.' : 'Different circuit lengths and corners.'} color="blue" />
+                    <HelpRow icon={<RotateCw size={16} />} title={lang === 'ko' ? '랩수' : 'Laps'} desc={lang === 'ko' ? '완주까지 필요한 랩 수를 의미합니다.' : 'Laps required to finish.'} color="yellow" />
+                    <HelpRow icon={<CloudRain size={16} />} title={lang === 'ko' ? '날씨' : 'Weather'} desc={lang === 'ko' ? '비가 오면 노면이 매우 미끄러워지지만, 웨트 타이어를 장착하면 제어력이 크게 향상됩니다.' : 'Rainy tracks are slippery; Wet tires significantly improve grip and control.'} color="cyan" />
+                    <HelpRow icon={<Timer size={16} />} title={lang === 'ko' ? '퀄리파잉' : 'Qualifying'} desc={lang === 'ko' ? '1랩을 주행하여 순위를 정합니다. 미선택 시 나란히 출발하며, 세션 중 패널티를 받으면 랩타임이 무효화됩니다.' : 'Run 1 lap for the grid. If disabled, cars start side-by-side. Penalties invalidate your lap time.'} color="orange" />
+                  </div>
+                </section>
+              </div>
+              <div className="p-6 border-t border-slate-800 bg-slate-950 flex justify-center">
+                <button onClick={() => setIsHelpOpen(false)} className="bg-red-600 hover:bg-red-500 text-white px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg active:scale-95">
+                  {lang === 'ko' ? '가이드 닫기' : 'Close Guide'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -648,6 +720,13 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
               <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
               {isConnected ? "ONLINE" : "OFFLINE"}
             </div>
+            <button
+              onClick={() => setIsHelpOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400 hover:text-white hover:border-red-600/50 transition-all text-[9px] font-black uppercase tracking-widest"
+            >
+              <HelpCircle size={12} />
+              {lang === 'ko' ? '가이드' : 'GUIDE'}
+            </button>
           </div>
           <div className="flex items-center gap-3">
             <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.3em] border-l-2 border-red-600 pl-3">
@@ -732,6 +811,91 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           ))}
         </div>
       )}
+
+      {/* HELP MODAL (Lobby) */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-fade-in" onClick={() => setIsHelpOpen(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-800 bg-slate-950 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-600/20 p-2 rounded-lg border border-red-500/30">
+                  <HelpCircle className="text-red-500" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white italic uppercase">{lang === 'ko' ? '멀티플레이어 가이드' : 'Multiplayer Guide'}</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{lang === 'ko' ? '패독 생활을 위한 지침서' : 'Instructions for your Paddock life'}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsHelpOpen(false)} className="text-slate-500 hover:text-white transition-colors p-2 bg-slate-800 rounded-full border border-slate-700">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 overflow-y-auto space-y-8 custom-scrollbar bg-slate-900">
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Laptop size={18} className="text-cyan-500" />
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider">{lang === 'ko' ? '자동차 설정 동기화' : 'Car Setup Synchronization'}</h4>
+                </div>
+                <div className="bg-slate-950/50 border border-slate-800 p-5 rounded-2xl">
+                  <p className="text-slate-400 text-sm leading-relaxed mb-4">
+                    {lang === 'ko'
+                      ? '현재 솔로 모드에서 설정한 모든 자동차 세팅이 멀티플레이어 환경에 실시간으로 적용됩니다. 메인 메뉴에서 세팅을 변경하면 즉시 반영됩니다.'
+                      : 'Your current solo mode car settings are synchronized in real-time. Changes in the main menu update immediately.'}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 bg-slate-900 px-3 py-2 rounded-xl border border-slate-800">
+                      <Settings size={14} className="text-slate-600" />
+                      {lang === 'ko' ? '성능 패키지 (에어로, 기어비 등)' : 'Performance Setup'}
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 bg-slate-900 px-3 py-2 rounded-xl border border-slate-800">
+                      <Palette size={14} className="text-slate-600" />
+                      {lang === 'ko' ? '리버리 및 팀 데칼' : 'Livery and Decals'}
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Flag size={18} className="text-red-500" />
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider">{lang === 'ko' ? '레이스 세션 설정' : 'Race Session Settings'}</h4>
+                </div>
+                <div className="space-y-3">
+                  <HelpRow icon={<MapIcon size={16} />} title={lang === 'ko' ? '트랙' : 'Track'} desc={lang === 'ko' ? '서킷마다 다른 길이와 코너 특성을 가집니다.' : 'Different circuit lengths and corners.'} color="blue" />
+                  <HelpRow icon={<RotateCw size={16} />} title={lang === 'ko' ? '랩수' : 'Laps'} desc={lang === 'ko' ? '완주까지 필요한 랩 수를 의미합니다.' : 'Laps required to finish.'} color="yellow" />
+                  <HelpRow icon={<CloudRain size={16} />} title={lang === 'ko' ? '날씨' : 'Weather'} desc={lang === 'ko' ? '비가 오면 노면이 매우 미끄러워지지만, 웨트 타이어를 장착하면 제어력이 크게 향상됩니다.' : 'Rainy tracks are slippery; Wet tires significantly improve grip and control.'} color="cyan" />
+                  <HelpRow icon={<Timer size={16} />} title={lang === 'ko' ? '퀄리파잉' : 'Qualifying'} desc={lang === 'ko' ? '1랩을 주행하여 순위를 정합니다. 미선택 시 나란히 출발하며, 세션 중 패널티를 받으면 랩타임이 무효화됩니다.' : 'Run 1 lap for the grid. If disabled, cars start side-by-side. Penalties invalidate your lap time.'} color="orange" />
+                </div>
+              </section>
+            </div>
+            <div className="p-6 border-t border-slate-800 bg-slate-950 flex justify-center">
+              <button onClick={() => setIsHelpOpen(false)} className="bg-red-600 hover:bg-red-500 text-white px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg active:scale-95">
+                {lang === 'ko' ? '가이드 닫기' : 'Close Guide'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const HelpRow: React.FC<{ icon: React.ReactNode, title: string, desc: string, color: string }> = ({ icon, title, desc, color }) => {
+  const colorMap: any = {
+    blue: 'bg-blue-600/20 text-blue-500 border-blue-500/30',
+    yellow: 'bg-yellow-600/20 text-yellow-500 border-yellow-500/30',
+    cyan: 'bg-cyan-600/20 text-cyan-500 border-cyan-500/30',
+    orange: 'bg-orange-600/20 text-orange-500 border-orange-500/30',
+  };
+
+  return (
+    <div className="flex gap-4 p-4 rounded-xl border border-slate-800 bg-slate-950/30">
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center border flex-shrink-0 ${colorMap[color]}`}>
+        {icon}
+      </div>
+      <div>
+        <h5 className="text-[11px] font-black text-white uppercase mb-0.5">{title}</h5>
+        <p className="text-[10px] text-slate-500 leading-tight">{desc}</p>
+      </div>
     </div>
   );
 };
