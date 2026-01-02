@@ -299,6 +299,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           socket={socket}
           onLeave={leaveRoom}
           weather={currentRoom.weather}
+          lang={lang}
         />
       </div>
     );

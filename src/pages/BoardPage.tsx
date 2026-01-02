@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BoardService, Post, Comment } from '../services/boardService';
 import { TRANSLATIONS, TEAMS } from '../constants';
-import { MessageSquare, Send, User, Clock, PenTool, Eye, CheckCircle, X, MessageCircle } from 'lucide-react';
+import { MessageSquare, Send, User, Clock, PenTool, Eye, CheckCircle, X, MessageCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface Props {
     lang: 'ko' | 'en';
@@ -11,6 +11,10 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [selectedTeam, setSelectedTeam] = useState<string>('ALL');
     const [isLoading, setIsLoading] = useState(false);
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [postsPerPage, setPostsPerPage] = useState(10);
 
     // Write Form State
     const [isFormVisible, setIsFormVisible] = useState(false);
@@ -32,8 +36,17 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
     };
 
     useEffect(() => {
+        setCurrentPage(1); // Reset page on filter change
         fetchPosts(selectedTeam);
     }, [selectedTeam]);
+
+    // Pagination Logic
+    const indexOfLastPost = currentPage * postsPerPage;
+    const indexOfFirstPost = indexOfLastPost - postsPerPage;
+    const currentPosts = posts.slice(indexOfFirstPost, indexOfLastPost);
+    const totalPages = Math.ceil(posts.length / postsPerPage);
+
+    const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
     const handleCreatePost = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -63,11 +76,9 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
     };
 
     const openPostDetail = async (post: Post) => {
-        // Optimistic UI update or wait for data
         const detailedPost = await BoardService.getPostById(post.id);
         if (detailedPost) {
             setSelectedPost(detailedPost);
-            // Update the list item view count locally
             setPosts(prev => prev.map(p => p.id === post.id ? { ...p, views: detailedPost.views } : p));
         }
     };
@@ -109,7 +120,7 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
                 </h2>
                 <button
                     onClick={() => {
-                        setTargetTeam(selectedTeam); // 현재 선택된 팀을 글쓰기 폼의 기본값으로 설정
+                        setTargetTeam(selectedTeam);
                         setIsFormVisible(!isFormVisible);
                     }}
                     className="bg-red-600 hover:bg-red-500 text-white px-6 py-3 rounded-xl font-bold uppercase text-sm tracking-widest flex items-center gap-2 transition-all shadow-lg hover:shadow-red-900/50"
@@ -224,7 +235,7 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
                         <p>{lang === 'ko' ? '게시글이 없습니다.' : 'No posts yet.'}</p>
                     </div>
                 ) : (
-                    posts.map((post) => {
+                    currentPosts.map((post) => {
                         const team = TEAMS.find(t => t.id === post.team_id);
                         return (
                             <div
@@ -282,6 +293,89 @@ const BoardPage: React.FC<Props> = ({ lang }) => {
                     })
                 )}
             </div>
+
+            {/* Pagination Controls */}
+            {posts.length > 0 && !isLoading && (
+                <div className="mt-12 relative flex flex-col md:flex-row items-center justify-center gap-6 w-full">
+                    {/* Page Numbers - Center */}
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            disabled={currentPage === 1}
+                            onClick={() => paginate(currentPage - 1)}
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-800 transition-all font-bold text-xs"
+                        >
+                            <ArrowLeft size={14} />
+                            {lang === 'ko' ? '이전' : 'Prev'}
+                        </button>
+
+                        <div className="flex items-center gap-1 mx-2">
+                            {Array.from({ length: totalPages }).map((_, i) => {
+                                const pageNum = i + 1;
+                                if (totalPages > 7) {
+                                    if (pageNum !== 1 && pageNum !== totalPages && Math.abs(pageNum - currentPage) > 2) {
+                                        if (pageNum === currentPage - 3 || pageNum === currentPage + 3) return <span key={pageNum} className="text-slate-700 font-bold px-1">...</span>;
+                                        return null;
+                                    }
+                                }
+                                return (
+                                    <button
+                                        key={pageNum}
+                                        onClick={() => paginate(pageNum)}
+                                        className={`w-10 h-10 rounded-xl border font-black transition-all ${currentPage === pageNum
+                                            ? 'bg-red-600 border-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.4)] z-10'
+                                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'
+                                            }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <button
+                            disabled={currentPage === totalPages}
+                            onClick={() => paginate(currentPage + 1)}
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-800 transition-all font-bold text-xs"
+                        >
+                            {lang === 'ko' ? '다음' : 'Next'}
+                            <ArrowRight size={14} />
+                        </button>
+                    </div>
+
+                    {/* Items Per Page Selector - Aligned Right */}
+                    <div className="md:absolute md:right-0 mt-6 md:mt-0">
+                        <label className="group flex items-center gap-4 bg-slate-900/40 hover:bg-slate-800/80 p-2.5 px-6 rounded-2xl border border-slate-800 hover:border-red-600/30 cursor-pointer transition-all backdrop-blur-sm">
+                            <div className="flex flex-col text-right">
+                                <span className="text-[9px] font-black text-slate-600 group-hover:text-red-500 uppercase tracking-widest transition-colors leading-tight">
+                                    {lang === 'ko' ? '표시 개수' : 'View Rows'}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-500 leading-none mt-0.5">
+                                    {postsPerPage} {lang === 'ko' ? '개씩' : 'Items'}
+                                </span>
+                            </div>
+
+                            <div className="relative flex items-center border-l border-slate-800 pl-4 ml-2">
+                                <select
+                                    value={postsPerPage}
+                                    onChange={(e) => {
+                                        setPostsPerPage(Number(e.target.value));
+                                        setCurrentPage(1);
+                                    }}
+                                    className="bg-transparent text-white font-black text-lg outline-none cursor-pointer border-none focus:ring-0 appearance-none pr-8"
+                                >
+                                    <option value={5} className="bg-slate-900 text-white font-bold p-2">5</option>
+                                    <option value={10} className="bg-slate-900 text-white font-bold p-2">10</option>
+                                    <option value={20} className="bg-slate-900 text-white font-bold p-2">20</option>
+                                    <option value={50} className="bg-slate-900 text-white font-bold p-2">50</option>
+                                </select>
+                                <div className="absolute right-0 text-red-600 pointer-events-none transition-transform group-hover:translate-y-0.5">
+                                    <ArrowRight size={16} className="rotate-90" />
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            )}
 
             {/* Post Detail Modal */}
             {selectedPost && (

@@ -17,9 +17,10 @@ interface Props {
     socket: Socket;
     onLeave: () => void;
     weather: Weather;
+    lang: 'ko' | 'en';
 }
 
-const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => {
+const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather, lang }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [players, setPlayers] = useState<MPPlayer[]>(room.players);
     const [isFinished, setIsFinished] = useState(false);
@@ -82,7 +83,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     useEffect(() => { weatherRef.current = weather; }, [weather]);
 
     const formatTime = (seconds: number) => {
-        if (seconds > 9000) return "INVALID";
+        if (seconds > 9000) return lang === 'ko' ? "무효" : "INVALID";
         const m = Math.floor(seconds / 60);
         const s = Math.floor(seconds % 60);
         const ms = Math.floor((seconds % 1) * 1000);
@@ -1655,12 +1656,12 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     <div className="flex items-center gap-2 mt-1">
                         <Flag size={16} className="text-red-500" />
                         <span className="text-red-500 font-bold text-lg">
-                            {room.status === 'qualifying' ? 'QUALIFYING' : `LAP ${currentLap}/${room.totalLaps}`}
+                            {room.status === 'qualifying' ? (lang === 'ko' ? '퀄리파잉' : 'QUALIFYING') : `LAP ${currentLap}/${room.totalLaps}`}
                         </span>
                     </div>
                     {lastLapTime && (
                         <div className="text-green-500 font-mono font-bold text-sm animate-pulse mt-1">
-                            LAST LAP: {lastLapTime}
+                            {lang === 'ko' ? '이전 랩' : 'LAST LAP'}: {lastLapTime}
                         </div>
                     )}
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-700/50">
@@ -1683,7 +1684,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             {/* QUALIFYING RESULTS OVERLAY (SIDE) */}
             {room.status === 'qualifying' && qualifyResults.length > 0 && (
                 <div className="absolute left-4 top-40 z-20 space-y-2 animate-fade-in pointer-events-none">
-                    <div className="bg-orange-600/90 text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest text-center">Qualy Live Timing</div>
+                    <div className="bg-orange-600/90 text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest text-center">
+                        {lang === 'ko' ? '퀄리파잉 실시간 순위' : 'Qualy Live Timing'}
+                    </div>
                     {qualifyResults.map((r, i) => (
                         <div key={r.id} className="bg-black/60 border border-slate-700 p-2 rounded-lg flex items-center justify-between gap-4 backdrop-blur-sm min-w-[180px]">
                             <div className="flex items-center gap-2">
@@ -1703,14 +1706,18 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-12 rounded-3xl border-2 border-yellow-500 flex flex-col items-center animate-fade-in shadow-2xl">
                         <Trophy size={64} className="text-yellow-500 mb-4" />
                         <h1 className="text-5xl text-white font-black uppercase italic mb-2">
-                            {room.status === 'qualifying' ? 'Qualifying Finished!' : 'Grand Prix Finished!'}
+                            {room.status === 'qualifying'
+                                ? (lang === 'ko' ? '퀄리파잉 종료!' : 'Qualifying Finished!')
+                                : (lang === 'ko' ? '그랑프리 종료!' : 'Grand Prix Finished!')}
                         </h1>
                         <div className="text-3xl text-slate-300 font-mono font-bold mb-6">
                             {myResult && formatTime(myResult)}
                         </div>
                         {room.status === 'qualifying' && (
                             <div className="mb-6 w-full">
-                                <h3 className="text-xl text-white font-bold mb-4 uppercase text-center border-b border-slate-700 pb-2">Qualifying Results</h3>
+                                <h3 className="text-xl text-white font-bold mb-4 uppercase text-center border-b border-slate-700 pb-2">
+                                    {lang === 'ko' ? '퀄리파잉 결과' : 'Qualifying Results'}
+                                </h3>
                                 <div className="space-y-2 max-h-[200px] overflow-y-auto mb-4 custom-scrollbar">
                                     {qualifyResults.map((r, i) => (
                                         <div key={r.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border border-slate-800">
@@ -1738,17 +1745,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                                                 }
                                             `}
                                         >
-                                            Start Race Session
+                                            {lang === 'ko' ? '레이스 시작하기' : 'Start Race Session'}
                                         </button>
                                         {qualifyResults.length < room.players.length && (
                                             <p className="text-slate-400 font-bold uppercase tracking-widest text-xs animate-pulse">
-                                                Waiting for {room.players.length - qualifyResults.length} drivers to finish...
+                                                {lang === 'ko' ? `남은 ${room.players.length - qualifyResults.length}명의 드라이버를 기다리는 중...` : `Waiting for ${room.players.length - qualifyResults.length} drivers to finish...`}
                                             </p>
                                         )}
                                     </div>
                                 ) : (
                                     <p className="text-orange-500 font-black uppercase tracking-widest text-center text-xs">
-                                        Waiting for host to start race...
+                                        {lang === 'ko' ? '방장이 레이스를 시작하길 기다리는 중...' : 'Waiting for host to start race...'}
                                     </p>
                                 )}
                             </div>
@@ -1761,10 +1768,10 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                                 if (others.length > 0) setSpectateTargetId(others[0].id);
                                 else setSpectateTargetId(me.id);
                             }} className="bg-slate-700 hover:bg-slate-600 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
-                                Specatate Race
+                                {lang === 'ko' ? '레이스 관전하기' : 'Specatate Race'}
                             </button>
                             <button onClick={onLeave} className="bg-white hover:bg-slate-200 text-black px-8 py-4 rounded-xl font-black uppercase tracking-widest pointer-events-auto transition-all shadow-lg active:scale-95">
-                                Back to Lobby
+                                {lang === 'ko' ? '로비로 돌아가기' : 'Back to Lobby'}
                             </button>
                         </div>
                     </div>
@@ -1776,7 +1783,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     <button onClick={() => changeSpectateTarget(-1)} className="text-white hover:text-yellow-500"><ArrowLeft size={24} /></button>
 
                     <div className="text-center">
-                        <div className="text-[10px] text-slate-400 font-bold uppercase">SPECTATING</div>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase">{lang === 'ko' ? '관전 중' : 'SPECTATING'}</div>
                         <div className="text-white font-black italic">
                             {playersRef.current.find(p => p.id === spectateTargetId)?.nickname || "Unknown"}
                         </div>
@@ -1811,17 +1818,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
             {currentPenalty > 0 && (
                 <div className="absolute bottom-56 left-10 bg-red-600/90 p-4 rounded-xl border border-red-500 backdrop-blur-md min-w-[120px] pointer-events-none z-50 animate-pulse">
-                    <div className="text-white font-bold text-[10px] uppercase tracking-[0.2em] mb-1">PENALTY</div>
+                    <div className="text-white font-bold text-[10px] uppercase tracking-[0.2em] mb-1">{lang === 'ko' ? '패널티' : 'PENALTY'}</div>
                     <div className="flex items-baseline gap-1">
                         <span className="text-3xl font-black text-white italic leading-none">+{currentPenalty}</span>
-                        <span className="text-red-200 font-black text-xs italic">SEC</span>
+                        <span className="text-red-200 font-black text-xs italic">{lang === 'ko' ? '초' : 'SEC'}</span>
                     </div>
                 </div>
             )}
 
             {/* SPEEDOMETER */}
             <div className="absolute bottom-28 left-10 bg-black/60 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[120px] pointer-events-none z-50">
-                <div className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em] mb-1">SPEED</div>
+                <div className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em] mb-1">{lang === 'ko' ? '속도' : 'SPEED'}</div>
                 <div className="flex items-baseline gap-1">
                     <span className="text-4xl font-black text-white italic leading-none">{Math.round(Math.abs(currentSpeed) * 25)}</span>
                     <span className="text-slate-500 font-black text-xs italic">KM/H</span>
@@ -1843,11 +1850,11 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 }}
                 className="absolute bottom-10 left-10 bg-red-600/80 hover:bg-red-600 text-white px-6 py-4 rounded-xl font-black uppercase tracking-widest backdrop-blur-md transition-all active:scale-95 border border-red-500/50 hover:border-red-500 z-50 pointer-events-auto shadow-lg flex items-center gap-2"
             >
-                <Flag size={18} /> EXIT PIT
+                <Flag size={18} /> {lang === 'ko' ? '피트 나가기' : 'EXIT PIT'}
             </button>
 
             <div className="absolute bottom-8 text-slate-500 font-bold text-sm uppercase tracking-widest animate-pulse pointer-events-none">
-                Use Arrow Keys to Drive
+                {lang === 'ko' ? '방향키를 사용하여 주행하세요' : 'Use Arrow Keys to Drive'}
             </div>
         </div>
     );
