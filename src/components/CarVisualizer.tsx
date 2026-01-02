@@ -383,9 +383,31 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, livery }) => {
         };
         animate();
 
+        // Resize Observer for robustness (Handle element size changes, not just window)
+        const handleResize = () => {
+            if (!mountRef.current || !sceneRef.current) return;
+            const width = mountRef.current.clientWidth;
+            const height = mountRef.current.clientHeight;
+
+            if (width === 0 || height === 0) return; // Wait for layout
+
+            const { camera, renderer } = sceneRef.current;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        };
+
+        const resizeObserver = new ResizeObserver(() => handleResize());
+        resizeObserver.observe(mountRef.current);
+
+        // Initial sizing check
+        handleResize();
+
         return () => {
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
+            resizeObserver.disconnect(); // Clean up observer
+
             if (container) {
                 container.removeEventListener('mousedown', handleMouseDown);
                 container.removeEventListener('wheel', handleWheel);
@@ -450,6 +472,11 @@ const CarVisualizer: React.FC<Props> = ({ setup, track, lang, livery }) => {
                     (c.material as THREE.MeshStandardMaterial).color.set(livery.halo);
                 }
             });
+        }
+
+        // Helmet Color Dynamic Update
+        if (parts.helmet) {
+            ((parts.helmet as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(livery.driverHelmet);
         }
 
         // Tire & Rake

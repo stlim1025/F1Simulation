@@ -50,6 +50,19 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     }
   }, [currentRoom]);
 
+  // Handle Refresh/Close: Clear session strictly on browser unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (currentRoom) {
+        socket.emit('leaveRoom', { roomId: currentRoom.id });
+      }
+      localStorage.removeItem('f1_current_room_id');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentRoom]);
+
   useEffect(() => {
     // 메시지가 많아질 때만 실시간 스크롤 시도
     if (chatMessages.length > 0) {
@@ -542,7 +555,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
           </div>
 
           {/* CHAT SECTION (Restored Position, Adjusted Height) */}
-          <div className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl flex flex-col h-[500px] lg:h-[600px] shadow-2xl lg:sticky lg:top-24">
+          <div className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl flex flex-col h-[60vh] lg:h-[calc(100vh-280px)] min-h-[400px] shadow-2xl lg:sticky lg:top-24">
             <div className="bg-slate-800/50 p-4 border-b border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare size={16} className="text-red-500" />
