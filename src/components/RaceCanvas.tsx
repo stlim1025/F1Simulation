@@ -42,6 +42,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const [lastLapTime, setLastLapTime] = useState<string | null>(null);
     const [elapsedTime, setElapsedTime] = useState("00:00.000");
     const [rank, setRank] = useState(1);
+    const [currentPenalty, setCurrentPenalty] = useState(0);
+    const [lapNotif, setLapNotif] = useState(false); // boolean으로 변경
     const [currentSpeed, setCurrentSpeed] = useState(0);
     const [qualifyResults, setQualifyResults] = useState<{ id: string, nickname: string, time: number }[]>([]);
 
@@ -62,6 +64,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const trackPathRef = useRef<Path2D>(new Path2D(track.svgPath));
     // Removed startMatchRef in favor of startData
     const playersRef = useRef<MPPlayer[]>(room.players);
+    const waypointsRef = useRef<{ x: number, y: number, l: number }[]>([]);
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const lastTimeRef = useRef<number>(performance.now());
@@ -77,6 +80,15 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     useEffect(() => { isSpectatingRef.current = isSpectating; }, [isSpectating]);
     useEffect(() => { spectateTargetIdRef.current = spectateTargetId; }, [spectateTargetId]);
     useEffect(() => { weatherRef.current = weather; }, [weather]);
+
+    const formatTime = (seconds: number) => {
+        if (seconds > 9000) return "INVALID";
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        const ms = Math.floor((seconds % 1) * 1000);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+    };
+
     useEffect(() => {
         // Fix: Only reset when status ACTUALLY changes to prevent clearing results on room updates
         if (prevRoomStatus.current !== room.status) {
@@ -85,7 +97,19 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 isFinishedRef.current = false;
                 setMyResult(null);
                 setCurrentLap(1);
-                setIsSpectating(false); // Fix: Auto-exit spectator mode
+                setCurrentPenalty(0); // Reset UI display
+                setLapNotif(false);
+
+                // Reset Physics & Penalty State for new session
+                gameState.current.lap = 1;
+                gameState.current.lastCheckpoint = 0;
+                gameState.current.penalty = 0;
+                gameState.current.lastProgress = -1;
+                gameState.current.penaltyFlash = 0;
+                gameState.current.localRaceStartTime = 0; // Reset start time
+                gameState.current.reverseReady = true;
+
+                setIsSpectating(false); // Auto-exit spectator mode
 
                 if (room.status === 'countdown') {
                     setQualifyResults([]);
@@ -308,7 +332,13 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         vy: 0,
         lap: 1,
         lastCheckpoint: 0,
-        lapStartTime: 0
+        lapStartTime: 0,
+        localRaceStartTime: 0,
+        penalty: 0,
+        lastProgress: -1,
+        lastPenaltyTime: 0,
+        penaltyFlash: 0,
+        reverseReady: true
     });
 
     // Physics Constants (Scaled for 4000x4000 world)
@@ -339,36 +369,33 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 }
 
                 const now = Date.now();
-                // For Qualifying, we rely on local lapStartTime which is reset on GO.
-
-                let startTime = room.raceStartTime || now;
-                if (room.status === 'qualifying') startTime = gameState.current.lapStartTime;
-                else if (gameState.current.lap > 1) startTime = gameState.current.lapStartTime;
-
+                // Use session start time (localRaceStartTime) to prevent reset every lap
+                const startTime = gameState.current.localRaceStartTime || room.raceStartTime || now;
                 const diff = now - startTime;
                 if (diff < 0) {
-                    setElapsedTime("00:00.000"); // Should not happen often but safe guard
+                    setElapsedTime("00:00.000");
                     return;
                 }
-
                 const min = Math.floor(diff / 60000);
                 const sec = Math.floor((diff % 60000) / 1000);
                 const ms = diff % 1000;
                 setElapsedTime(`${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`);
-            }, 50); // Update every 50ms
+            }, 50);
         } else {
             setElapsedTime("00:00.000");
         }
         return () => clearInterval(interval);
     }, [room.status, room.raceStartTime]);
 
-    // Handle Light Stage Changes & Timer Start for Qualy
+    // Handle Light Stage Changes & Timer Start
     useEffect(() => {
-        if (room.status === 'qualifying' && lightStage === 6) {
-            // GO SIGNAL! Reset timer base.
-            gameState.current.lapStartTime = Date.now();
+        if (lightStage === 6) {
+            // GO SIGNAL! Record purely LOCAL start time to avoid clock skew.
+            const now = Date.now();
+            gameState.current.lapStartTime = now;
+            gameState.current.localRaceStartTime = now;
         }
-    }, [lightStage, room.status]);
+    }, [lightStage]);
 
     // SVG Loading Logic (Ported from TrackMap.tsx)
     useEffect(() => {
@@ -613,6 +640,47 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             return newBarriers;
         };
 
+        // Generate Waypoints for Rank Calculation (World Space)
+        try {
+            const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            tempPath.setAttribute("d", pathStr);
+            tempSvg.appendChild(tempPath);
+            document.body.appendChild(tempSvg);
+
+            const totalLen = tempPath.getTotalLength();
+            const wpStep = Math.max(10, totalLen / 200); // ~200 points
+            const newWaypoints = [];
+
+            const { scale: s, offsetX: ox, offsetY: oy } = paramsRef.current;
+            const startOff = totalLen * (track.pathOffset || 0);
+
+            for (let l = 0; l < totalLen; l += wpStep) {
+                const p = tempPath.getPointAtLength(l);
+
+                // Calculate Progress relative to Start Line (0..TotalLen) in driving direction
+                let adaptedL = l;
+                if (track.reverse) {
+                    // Moving backwards: S -> S-10 .. 0 .. Total-10 .. S
+                    // Distance from S: (S - l + Total) % Total
+                    adaptedL = (startOff - l + totalLen) % totalLen;
+                } else {
+                    // Moving forwards: S -> S+10 .. Total .. 0 .. S-10 .. S
+                    // Distance from S: (l - S + Total) % Total
+                    adaptedL = (l - startOff + totalLen) % totalLen;
+                }
+
+                // Convert to World Space
+                newWaypoints.push({
+                    x: p.x * s + ox,
+                    y: p.y * s + oy,
+                    l: adaptedL // Corrected progress
+                });
+            }
+            waypointsRef.current = newWaypoints;
+            document.body.removeChild(tempSvg);
+        } catch (e) { console.warn("WP Gen Error", e); }
+
         const generatedBarriers = generateBarriers();
         setBarriers(generatedBarriers);
         barriersRef.current = generatedBarriers;
@@ -681,6 +749,40 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             // Limit dt to prevent huge skips (e.g. if the tab was suspended)
             const dtClamped = Math.min(dt, 2.0);
 
+            // 0. Rank Calculation (Moved up to ensure sortedPlayers is available)
+            const getProgress = (p: MPPlayer) => {
+                if (!waypointsRef.current.length) return 0;
+                let closestDistSq = Infinity;
+                let progress = 0;
+                const px = p.id === me.id ? gameState.current.x : (p.x || 0);
+                const py = p.id === me.id ? gameState.current.y : (p.y || 0);
+                for (const wp of waypointsRef.current) {
+                    const dSq = (px - wp.x) ** 2 + (py - wp.y) ** 2;
+                    if (dSq < closestDistSq) {
+                        closestDistSq = dSq;
+                        progress = wp.l;
+                    }
+                }
+                return progress;
+            };
+
+            const sortedPlayers = [...playersRef.current].map(p => ({
+                ...p,
+                _progress: getProgress(p)
+            })).sort((a, b) => {
+                if (a.finished && !b.finished) return -1;
+                if (!a.finished && b.finished) return 1;
+                const lapA = a.id === me.id ? gameState.current.lap : (a.lap || 1);
+                const lapB = b.id === me.id ? gameState.current.lap : (b.lap || 1);
+                if (lapA !== lapB) return lapB - lapA;
+                return b._progress - a._progress;
+            });
+
+            const myRank = sortedPlayers.findIndex(p => p.id === socket.id) + 1;
+            setRank(myRank);
+            setCurrentSpeed(gameState.current.speed);
+            setCurrentPenalty(gameState.current.penalty);
+
             // 1. Physics Update
             // Fix: Check for Light Stage (Must be 6/Green to move) OR if it's 0 (Hidden/Not Active)
             // For Qualifying, use isQualyStarted check.
@@ -699,13 +801,23 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
 
                 if (keysPressed.current['ArrowDown']) {
                     if (gameState.current.speed > 0.1) {
-                        // Brake (Weaker for longer stopping distance)
-                        gameState.current.speed -= ACCEL * 0.7 * dtClamped;
+                        // Braking (Increased sensitivity 0.7 -> 1.2)
+                        gameState.current.speed -= ACCEL * 1.2 * dtClamped;
                         if (gameState.current.speed < 0) gameState.current.speed = 0;
-                    } else {
-                        // Reverse
+                        gameState.current.reverseReady = false; // Block immediate reverse
+                    } else if (gameState.current.speed < -0.1) {
+                        // Already reversing
                         gameState.current.speed -= ACCEL * 0.4 * dtClamped;
+                    } else {
+                        // Stopped/Near zero
+                        if (gameState.current.reverseReady) {
+                            gameState.current.speed -= ACCEL * 0.4 * dtClamped;
+                        } else {
+                            gameState.current.speed = 0;
+                        }
                     }
+                } else {
+                    gameState.current.reverseReady = true; // Ready to reverse once stopped
                 }
 
                 // Setup-based Physics Calculations
@@ -937,8 +1049,13 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                         if (!isFinishedRef.current) {
                             // Calculate time based on local lapStartTime (set when GO signal dropped)
                             const qTime = (now - gameState.current.lapStartTime) / 1000;
-                            setMyResult(qTime);
-                            socket.emit('finishQualifying', { roomId: room.id, time: qTime.toFixed(3) });
+
+                            // IF PENALTY: Mark as Invalid (Very high time to be last, but preserves qTime for sorting among DQ'd)
+                            const hasPenalty = gameState.current.penalty > 0;
+                            const finalQTime = hasPenalty ? (9999 + qTime) : qTime;
+
+                            setMyResult(finalQTime);
+                            socket.emit('finishQualifying', { roomId: room.id, time: finalQTime.toFixed(3) });
 
                             // Move out of way
                             gameState.current.x += Math.sin(gameState.current.rotation) * 200;
@@ -951,9 +1068,14 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     // 2. Main Race Logic
                     else if (gameState.current.lap >= room.totalLaps) {
                         if (!isFinishedRef.current) {
-                            const totalTime = (now - (room.raceStartTime || now)) / 1000;
-                            setMyResult(totalTime);
-                            socket.emit('finishRace', { roomId: room.id, time: totalTime.toFixed(3) });
+                            // Fix: Use Local Start Time Difference to ensure accuracy independent of server clock skew
+                            // Fallback to server time if local start time is missing (e.g. reload/rejoin)
+                            const startTs = gameState.current.localRaceStartTime || room.raceStartTime || now;
+                            const rawTime = (now - startTs) / 1000;
+                            const finalTime = rawTime + gameState.current.penalty; // Add Penalty
+
+                            setMyResult(finalTime);
+                            socket.emit('finishRace', { roomId: room.id, time: finalTime.toFixed(3) });
 
                             // Move car forward slightly to clear the line for others
                             // 200 units in the current direction
@@ -985,6 +1107,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                         gameState.current.lapStartTime = now;
 
                         setCurrentLap(gameState.current.lap);
+                        setLapNotif(true);
+                        setTimeout(() => setLapNotif(false), 1000); // 정확히 1초 후 제거
                         setLastLapTime((now - gameState.current.lapStartTime > 0 ? ((now - gameState.current.lapStartTime) / 1000).toFixed(3) : "0.000") + 's');
                         // Wait, lapStartTime just reset. We need detailed lap time of PREVIOUS lap.
                         // Ideally we'd store prevLapTime.
@@ -1007,6 +1131,10 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     gameState.current.y = gridPos.y;
                     gameState.current.rotation = gridPos.rotation;
                 }
+
+                // CRITICAL: Keep progress synced during countdown to prevent jump detection at GO
+                const myProgress = sortedPlayers.find(p => p.id === me.id)?._progress || 0;
+                gameState.current.lastProgress = myProgress;
             }
 
             // 3. Network Sync
@@ -1017,20 +1145,52 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     y: gameState.current.y,
                     rotation: gameState.current.rotation,
                     speed: gameState.current.speed,
-                    lap: gameState.current.lap
+                    lap: gameState.current.lap,
+                    penalty: gameState.current.penalty
                 });
             }
 
-            // 4. Rank Calculation (Local Approximation)
-            const sortedPlayers = [...playersRef.current].sort((a, b) => {
-                if (a.finished && !b.finished) return -1;
-                if (!a.finished && b.finished) return 1;
-                if ((a.lap || 1) !== (b.lap || 1)) return (b.lap || 1) - (a.lap || 1);
-                return 0; // Tie-break omitted for simplicity
-            });
-            const myRank = sortedPlayers.findIndex(p => p.id === socket.id) + 1;
-            setRank(myRank);
-            setCurrentSpeed(gameState.current.speed);
+
+            // --- TRACK LIMIT / SHORTCUT DETECTION ---
+            if (!isFinishedRef.current && (room.status === 'racing' || room.status === 'qualifying')) {
+                const myProgress = sortedPlayers.find(p => p.id === me.id)?._progress || 0;
+                let lastProg = gameState.current.lastProgress;
+
+                // Track progress starting from first available frame
+                if (lastProg === -1) {
+                    gameState.current.lastProgress = myProgress;
+                    lastProg = myProgress;
+                }
+
+                // Penalty Detection Logic starts after 5s to ensure grid/spawn stabilization
+                const raceTime = Date.now() - (gameState.current.localRaceStartTime || 0);
+                const isGracePeriod = (raceTime < 5000);
+
+                // Only detect if moved out of grace AND moving fast enough (to avoid spawn jitter/warps)
+                if (!isGracePeriod && Math.abs(gameState.current.speed) > 5) {
+                    const maxExpected = Math.max(20, Math.abs(gameState.current.speed)) * dtClamped * 2.2;
+                    const jump = myProgress - lastProg;
+                    const isWrap = Math.abs(jump) > 2000;
+
+                    if (!isWrap && jump > maxExpected + 8) {
+                        // Shortcut Detected! (Stricter)
+                        const now = Date.now();
+                        if (now - gameState.current.lastPenaltyTime > 3000) {
+                            const isMajor = jump > 200;
+                            const actualPenalty = isMajor ? (jump > 500 ? 10 : 5) : 5; // Base penalty increased to 5s
+
+                            gameState.current.penalty += actualPenalty;
+                            gameState.current.lastPenaltyTime = now;
+                            gameState.current.penaltyFlash = 120; // 2 seconds flash
+                        }
+                    }
+                }
+
+                // CRITICAL: Always keep lastProgress in sync during grace period OR when stopped
+                // This is the MOST important part to prevent start-line penalties.
+                gameState.current.lastProgress = myProgress;
+                if (gameState.current.penaltyFlash > 0) gameState.current.penaltyFlash--;
+            }
 
             // 5. Draw
             ctx.fillStyle = '#0f172a';
@@ -1302,6 +1462,49 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 ctx.restore();
             }
 
+
+            // UI: PENALTY WARNINGS
+            // 1. Self Warning (Center)
+            if (gameState.current.penaltyFlash > 0) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to screen space
+                const alpha = Math.min(1, gameState.current.penaltyFlash / 30);
+
+                ctx.fillStyle = `rgba(220, 38, 38, ${alpha})`; // Red
+                ctx.fillRect(0, 0, canvas.width, 140); // Top bar
+
+                ctx.font = "bold 48px sans-serif";
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.textAlign = "center";
+                ctx.fillText("⚠ TRACK LIMITS", canvas.width / 2, 60);
+                ctx.font = "bold 32px sans-serif";
+                ctx.fillText(`PENALTY APPLIED: +${gameState.current.penalty}s`, canvas.width / 2, 110);
+
+                ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+                ctx.lineWidth = 4;
+                ctx.strokeRect(20, 20, canvas.width - 40, 100);
+
+                ctx.restore();
+            }
+
+            // 2. Others Penalty List (Left Side)
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            let notifY = 250;
+            ctx.font = "bold 16px sans-serif";
+            ctx.textAlign = "left";
+
+            playersRef.current.forEach(p => {
+                if (p.id !== me.id && p.penalty && p.penalty > 0) {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                    ctx.fillRect(10, notifY - 20, 220, 30);
+                    ctx.fillStyle = "#ef4444"; // Red text
+                    ctx.fillText(`⚠ ${p.nickname}: +${p.penalty}s`, 20, notifY);
+                    notifY += 35;
+                }
+            });
+            ctx.restore();
+
             animationFrameId = requestAnimationFrame(render);
         };
 
@@ -1319,13 +1522,13 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         socket.on('playerMoved', (data: any) => {
             setPlayers(prev => prev.map(p => {
                 if (p.id === data.id) {
-                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap };
+                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap, penalty: data.penalty };
                 }
                 return p;
             }));
             playersRef.current = playersRef.current.map(p => {
                 if (p.id === data.id) {
-                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap };
+                    return { ...p, x: data.x, y: data.y, rotation: data.rotation, speed: data.speed, lap: data.lap, penalty: data.penalty };
                 }
                 return p;
             });
@@ -1460,12 +1663,13 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                             LAST LAP: {lastLapTime}
                         </div>
                     )}
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-700/50">
+                        <Timer size={16} className="text-slate-400" />
+                        <span className="text-2xl font-black font-mono text-white tracking-widest">{elapsedTime}</span>
+                    </div>
                 </div>
 
-                <div className="bg-black/80 px-8 py-3 rounded-full border border-slate-700 backdrop-blur-md flex items-center gap-3">
-                    <Timer size={20} className="text-white" />
-                    <span className="text-3xl font-black font-mono text-white tracking-widest">{elapsedTime}</span>
-                </div>
+                <div />
 
                 <div className="bg-black/50 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[150px] text-right">
                     <div className="text-slate-400 font-bold text-xs uppercase tracking-widest">{room.status === 'qualifying' ? 'SESSION' : 'POSITION'}</div>
@@ -1486,7 +1690,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                                 <span className="text-orange-500 font-black italic">P{i + 1}</span>
                                 <span className="text-white font-bold text-xs">{r.nickname}</span>
                             </div>
-                            <span className="text-slate-400 font-mono text-xs">{r.time.toFixed(3)}s</span>
+                            <span className="text-slate-400 font-mono text-xs">
+                                {formatTime(r.time)}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -1499,7 +1705,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                         <h1 className="text-5xl text-white font-black uppercase italic mb-2">
                             {room.status === 'qualifying' ? 'Qualifying Finished!' : 'Grand Prix Finished!'}
                         </h1>
-                        <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
+                        <div className="text-3xl text-slate-300 font-mono font-bold mb-6">
+                            {myResult && formatTime(myResult)}
+                        </div>
                         {room.status === 'qualifying' && (
                             <div className="mb-6 w-full">
                                 <h3 className="text-xl text-white font-bold mb-4 uppercase text-center border-b border-slate-700 pb-2">Qualifying Results</h3>
@@ -1510,7 +1718,9 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                                                 <span className={`font-black italic ${i === 0 ? 'text-yellow-500' : 'text-slate-500'}`}>{i + 1}</span>
                                                 <span className="text-white font-bold">{r.nickname}</span>
                                             </div>
-                                            <span className="font-mono text-slate-300">{r.time.toFixed(3)}s</span>
+                                            <span className="font-mono text-slate-300">
+                                                {formatTime(r.time)}
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
@@ -1587,6 +1797,27 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                 className="max-h-[95vh] aspect-square bg-slate-900 shadow-2xl rounded-3xl border-4 border-slate-800"
                 style={{ cursor: 'none' }}
             />
+
+            {/* LAP NOTIFICATION - Mini Style */}
+            {lapNotif && (
+                <div className="absolute top-32 left-1/2 -translate-x-1/2 z-40 pointer-events-none animate-fade-in">
+                    <div className="bg-black/80 backdrop-blur-md px-8 py-3 rounded-2xl border-2 border-yellow-500 shadow-lg text-center">
+                        <div className="text-5xl font-black text-white italic">
+                            LAP {currentLap} <span className="text-xl text-slate-500">/ {room.totalLaps}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {currentPenalty > 0 && (
+                <div className="absolute bottom-56 left-10 bg-red-600/90 p-4 rounded-xl border border-red-500 backdrop-blur-md min-w-[120px] pointer-events-none z-50 animate-pulse">
+                    <div className="text-white font-bold text-[10px] uppercase tracking-[0.2em] mb-1">PENALTY</div>
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-3xl font-black text-white italic leading-none">+{currentPenalty}</span>
+                        <span className="text-red-200 font-black text-xs italic">SEC</span>
+                    </div>
+                </div>
+            )}
 
             {/* SPEEDOMETER */}
             <div className="absolute bottom-28 left-10 bg-black/60 p-4 rounded-xl border border-slate-700 backdrop-blur-md min-w-[120px] pointer-events-none z-50">

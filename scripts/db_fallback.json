@@ -127,5 +127,17 @@
       "author": "Anonymous",
       "created_at": "2025-12-19T16:44:01.515Z"
     }
+  ],
+  "access_logs": [
+    {
+      "id": 1,
+      "socket_id": "HapjdmI7XiU77swYAAAB",
+      "nickname": null,
+      "ip": "::ffff:127.0.0.1",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
+      "action": "connect",
+      "room_id": null,
+      "created_at": "2026-01-02T10:09:56.280Z"
+    }
   ]
 }

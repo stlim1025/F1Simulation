@@ -308,6 +308,14 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
   if (currentRoom && currentRoom.status === 'finished') {
     const sortedPlayers = [...currentRoom.players].sort((a, b) => (a.finishTime || 999) - (b.finishTime || 999));
 
+    const formatTime = (seconds: number) => {
+      if (!seconds || seconds <= 0) return "00:00.000";
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      const ms = Math.floor((seconds % 1) * 1000);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+    };
+
     return (
       <div className="max-w-4xl mx-auto mt-10 animate-fade-in px-4">
         <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl overflow-hidden relative">
@@ -333,7 +341,7 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-lg md:text-xl font-mono font-black text-white">{p.finishTime ? `${p.finishTime}s` : 'DNF'}</div>
+                  <div className="text-lg md:text-xl font-mono font-black text-white">{p.finishTime ? formatTime(p.finishTime) : 'DNF'}</div>
                   <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{i === 0 ? 'WINNER' : `+${(p.finishTime - sortedPlayers[0].finishTime).toFixed(3)}s`}</div>
                 </div>
               </div>

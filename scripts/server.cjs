@@ -325,6 +325,7 @@ const logAccess = async (socket, action, nickname = null, roomId = null) => {
       console.error('[DB] Failed to log access:', err.message);
     }
   } else {
+    if (!localDb.access_logs) localDb.access_logs = [];
     localDb.access_logs.push({
       id: localDb.access_logs.length + 1,
       socket_id: socketId,
@@ -703,9 +704,9 @@ io.on('connection', (socket) => {
   });
 
   // 2. Real-time Racing Logic
-  socket.on('playerMove', ({ roomId, x, y, rotation, speed, lap }) => {
+  socket.on('playerMove', ({ roomId, x, y, rotation, speed, lap, penalty }) => {
     // Broadcast movement to others in room ONLY (optimization)
-    socket.to(roomId).emit('playerMoved', { id: socket.id, x, y, rotation, speed, lap });
+    socket.to(roomId).emit('playerMoved', { id: socket.id, x, y, rotation, speed, lap, penalty });
 
     // Update server state (optional, for result verification)
     const room = rooms.get(roomId);
@@ -717,6 +718,7 @@ io.on('connection', (socket) => {
         p.rotation = rotation;
         p.speed = speed;
         if (lap) p.lap = lap;
+        if (penalty) p.penalty = penalty;
       }
     }
   });

@@ -129,6 +129,7 @@ export interface MPPlayer {
   finished?: boolean;
   finishTime?: number;
   qualifyTime?: number; // Qualifying lap time
+  penalty?: number; // Accumulated penalty time in seconds
   lastResult?: SimulationResult | null;
 }
 
