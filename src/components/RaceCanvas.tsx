@@ -45,6 +45,16 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const [currentSpeed, setCurrentSpeed] = useState(0);
     const [qualifyResults, setQualifyResults] = useState<{ id: string, nickname: string, time: number }[]>([]);
 
+    // Start Lights State
+    const [lightStage, setLightStage] = useState(0); // 0=Hidden, 1-5=Red, 6=Green(Go)
+    const lightStageRef = useRef(0);
+    const [isQualyStarted, setIsQualyStarted] = useState(false);
+    const isQualyStartedRef = useRef(false);
+
+    useEffect(() => { lightStageRef.current = lightStage; }, [lightStage]);
+    useEffect(() => { isQualyStartedRef.current = isQualyStarted; }, [isQualyStarted]);
+
+
     // const track = TRACKS.find(t => t.id === room.trackId) || TRACKS[0]; // Moved up
 
     // Game Loop Refs
@@ -55,6 +65,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const meRef = useRef<MPPlayer>(me);
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const lastTimeRef = useRef<number>(performance.now());
+    const prevRoomStatus = useRef<string | null>(null);
 
     // SPECTATOR
     const [isSpectating, setIsSpectating] = useState(false);
@@ -67,14 +78,89 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     useEffect(() => { spectateTargetIdRef.current = spectateTargetId; }, [spectateTargetId]);
     useEffect(() => { weatherRef.current = weather; }, [weather]);
     useEffect(() => {
-        if (room.status === 'countdown' || room.status === 'racing' || room.status === 'qualifying') {
-            setIsFinished(false);
-            isFinishedRef.current = false;
-            setMyResult(null);
-            setCurrentLap(1);
-            if (room.status === 'countdown') {
-                setQualifyResults([]); // Clear live timing when moving to main race
+        // Fix: Only reset when status ACTUALLY changes to prevent clearing results on room updates
+        if (prevRoomStatus.current !== room.status) {
+            if (room.status === 'countdown' || room.status === 'racing' || room.status === 'qualifying') {
+                setIsFinished(false);
+                isFinishedRef.current = false;
+                setMyResult(null);
+                setCurrentLap(1);
+                setIsSpectating(false); // Fix: Auto-exit spectator mode
+
+                if (room.status === 'countdown') {
+                    setQualifyResults([]);
+                    setLightStage(0);
+
+                    // Fix: Simplified Client Logic to match Server Random Delay
+                    // Server waits 4s~6s.
+                    // Client lights up 5 lights in 3s (0.6s interval).
+                    // Then waits in Stage 5 until server sends 'racing' status.
+
+                    const startTime = Date.now();
+                    const LIGHT_INTERVAL = 600; // 0.6s
+
+                    const timer = setInterval(() => {
+                        const elapsed = Date.now() - startTime;
+
+                        if (elapsed < LIGHT_INTERVAL * 5) {
+                            // Stage 1~5
+                            const stage = Math.floor(elapsed / LIGHT_INTERVAL) + 1;
+                            setLightStage(stage);
+                        } else {
+                            // Stage 5 (Holding) - Wait for Server
+                            setLightStage(5);
+                        }
+                    }, 50);
+                    return () => clearInterval(timer);
+                } else if (room.status === 'racing') {
+                    // Server set status to 'racing'. GO!
+                    setLightStage(6); // GO
+
+                    // Hide lights after 2s
+                    setTimeout(() => setLightStage(0), 2000);
+                } else if (room.status === 'qualifying') {
+                    // Fix: Qualifying Start Sequence (Simulated)
+                    // Fix: F1 Style Start - Faster & Synchronized
+                    // Fix: F1 Style Start - High Precision Logic
+                    // 1. Lights turn on every 600ms (0.6s) -> 5 lights = 3.0s (ends at 3000ms)
+                    // 2. Wait exactly 1.5s (Fixed Delay) -> Ends at 4500ms
+                    // 3. Lights Out (GO)
+
+                    const startTime = Date.now();
+                    const LIGHT_INTERVAL = 600; // 0.6s
+                    const HOLD_DELAY = 1500;    // 1.5s
+                    const TOTAL_START_TIME = (LIGHT_INTERVAL * 5) + HOLD_DELAY;
+
+                    const timer = setInterval(() => {
+                        const now = Date.now();
+                        const elapsed = now - startTime;
+
+                        // Calculate stage based on time
+                        if (elapsed < LIGHT_INTERVAL * 5) {
+                            // 0~600: Stage 1
+                            // 600~1200: Stage 2
+                            // ...
+                            // 2400~3000: Stage 5
+                            const currentStage = Math.floor(elapsed / LIGHT_INTERVAL) + 1;
+                            setLightStage(prev => (prev !== currentStage ? currentStage : prev));
+                        } else if (elapsed < TOTAL_START_TIME) {
+                            // 3000~4500: Stage 5 (Hold Red Lights)
+                            setLightStage(5);
+                        } else {
+                            // 4500+: GO (Lights Out)
+                            setLightStage(6);
+                            setIsQualyStarted(true);
+                            gameState.current.lapStartTime = now;
+                            clearInterval(timer);
+
+                            // Hide lights after 2s
+                            setTimeout(() => setLightStage(0), 2000);
+                        }
+                    }, 20); // Check very frequently (20ms) for smooth updates
+                    return () => clearInterval(timer);
+                }
             }
+            prevRoomStatus.current = room.status;
         }
     }, [room.status]);
 
@@ -137,18 +223,69 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     const startData = useRef(getTrackStartData(track.svgPath));
 
     // Calculate Grid Position
+    // Calculate Grid Position
     const getGridPosition = (index: number, start: { x: number, y: number, angle: number }) => {
         const spacing = 60; // Distance between rows
         const sideOffset = 15; // Left/Right stagger
-        const row = Math.floor(index / 2);
-        const col = index % 2; // 0=Left(Pole), 1=Right
+        let row = Math.floor(index / 2);
+        let col = index % 2; // 0=Left(Pole), 1=Right
 
+        // Fix: Qualifying -> All start at same position (Ghost Mode)
+        if (room.status === 'qualifying') {
+            // Everyone starts at 0, 0 (relative to grid start)
+            // Use standard Pole Position logic but ignore index
+            row = 0;
+            col = 0;
+            const backAngle = start.angle + Math.PI;
+            let gx = start.x + Math.cos(backAngle) * 20;
+            let gy = start.y + Math.sin(backAngle) * 20;
+            // Apply standard side offset for Pole (Left)
+            const sideAngle = backAngle - Math.PI / 2;
+            gx += Math.cos(sideAngle) * sideOffset;
+            gy += Math.sin(sideAngle) * sideOffset;
+            return { x: gx, y: gy, rotation: start.angle + Math.PI / 2 };
+        }
+
+        // Fix: No Qualifying -> 4 Abreast Grid
+        if (!room.isQualifyingEnabled) {
+            row = 0; // All on first row
+            // Spread 4 cars: -1.5, -0.5, 0.5, 1.5 * width
+            // 4 cars max usually? Or more? Assuming 4 max for now as per room limit.
+            // If more, we wrap? room.players.length is max 4 in this app.
+            const latPos = (index - 1.5) * 25; // -37.5, -12.5, 12.5, 37.5
+
+            const backAngle = start.angle + Math.PI;
+            // No row spacing, just lateral
+            let gx = start.x + Math.cos(backAngle) * 20;
+            let gy = start.y + Math.sin(backAngle) * 20;
+
+            const sideAngle = backAngle + Math.PI / 2;
+            gx += Math.cos(sideAngle) * latPos;
+            gy += Math.sin(sideAngle) * latPos;
+
+            return { x: gx, y: gy, rotation: start.angle + Math.PI / 2 };
+        }
+
+        // Fix: Staggered Grid (1st place slightly ahead) and Standard Grid
         // Negative direction vector (backwards from start line)
         const backAngle = start.angle + Math.PI;
 
         // Calculate raw position backwards
-        let gx = start.x + Math.cos(backAngle) * (row * spacing + 20); // 20px buffer from line
-        let gy = start.y + Math.sin(backAngle) * (row * spacing + 20);
+        // 1st Place (index 0) is Row 0. 2nd Place (index 1) is Row 0.
+        // To put 1st ahead, we push 2nd place further back.
+        // Or we push everyone back and pull 1st forward.
+        // Standard F1: 8m between slots. 16m between pole and P3.
+        // Here we use pixels. 
+        // We'll add a 'stagger' to the 'row' calculation or distance.
+
+        let distFromLine = row * spacing + 20;
+        if (col === 1) {
+            // If Right side (P2, P4...), move slightly back to create stagger
+            distFromLine += spacing / 2;
+        }
+
+        let gx = start.x + Math.cos(backAngle) * distFromLine;
+        let gy = start.y + Math.sin(backAngle) * distFromLine;
 
         // Apply side offset (Perpendicular)
         const sideAngle = backAngle + (col === 0 ? -Math.PI / 2 : Math.PI / 2);
@@ -156,7 +293,6 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         gy += Math.sin(sideAngle) * sideOffset;
 
         // Correct rotation: Physics 0 = North, Math 0 = East.
-        // So we add 90 deg (PI/2) to convert Math Angle to Physics Angle.
         return { x: gx, y: gy, rotation: start.angle + Math.PI / 2 };
     };
 
@@ -185,11 +321,36 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     // Timer Logic
     useEffect(() => {
         let interval: NodeJS.Timeout;
-        if ((room.status === 'racing' || room.status === 'qualifying') && room.raceStartTime) {
-            gameState.current.lapStartTime = room.raceStartTime; // Initial lap start time
+        if ((room.status === 'racing' || room.status === 'qualifying')) {
+            // Initial Sync
+            if (room.status === 'racing' && room.raceStartTime) {
+                gameState.current.lapStartTime = room.raceStartTime;
+            } else if (room.status === 'qualifying') {
+                // Qualifying Start Time will be set when lightStage becomes 6 (GO)
+                // If already running (rejoin), we might need logic, but for simple flow:
+                // Wait for GO.
+            }
+
             interval = setInterval(() => {
+                // If Qualifying and NOT started yet, show 00:00
+                if (room.status === 'qualifying' && !isQualyStartedRef.current) {
+                    setElapsedTime("00:00.000");
+                    return;
+                }
+
                 const now = Date.now();
-                const diff = now - (room.raceStartTime || now);
+                // For Qualifying, we rely on local lapStartTime which is reset on GO.
+
+                let startTime = room.raceStartTime || now;
+                if (room.status === 'qualifying') startTime = gameState.current.lapStartTime;
+                else if (gameState.current.lap > 1) startTime = gameState.current.lapStartTime;
+
+                const diff = now - startTime;
+                if (diff < 0) {
+                    setElapsedTime("00:00.000"); // Should not happen often but safe guard
+                    return;
+                }
+
                 const min = Math.floor(diff / 60000);
                 const sec = Math.floor((diff % 60000) / 1000);
                 const ms = diff % 1000;
@@ -200,6 +361,14 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
         }
         return () => clearInterval(interval);
     }, [room.status, room.raceStartTime]);
+
+    // Handle Light Stage Changes & Timer Start for Qualy
+    useEffect(() => {
+        if (room.status === 'qualifying' && lightStage === 6) {
+            // GO SIGNAL! Reset timer base.
+            gameState.current.lapStartTime = Date.now();
+        }
+    }, [lightStage, room.status]);
 
     // SVG Loading Logic (Ported from TrackMap.tsx)
     useEffect(() => {
@@ -513,7 +682,18 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             const dtClamped = Math.min(dt, 2.0);
 
             // 1. Physics Update
-            if (!isFinishedRef.current && (room.status === 'racing' || room.status === 'qualifying')) {
+            // Fix: Check for Light Stage (Must be 6/Green to move) OR if it's 0 (Hidden/Not Active)
+            // For Qualifying, use isQualyStarted check.
+            let canMove = lightStageRef.current === 6 || lightStageRef.current === 0;
+            if (room.status === 'qualifying') {
+                canMove = isQualyStartedRef.current;
+            } else if (room.status === 'racing') {
+                // For Racing, server controls it. Can move if status is racing and lights are green (6) or off (0)
+                // But block if lights are actively showing start sequence (1-5).
+                if (lightStageRef.current >= 1 && lightStageRef.current <= 5) canMove = false;
+            }
+
+            if (!isFinishedRef.current && (room.status === 'racing' || room.status === 'qualifying') && canMove) {
                 // Movement
                 if (keysPressed.current['ArrowUp']) gameState.current.speed += ACCEL * dtClamped;
 
@@ -635,14 +815,30 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                             const ny = dy / dist || 0;
                             const overlap = 30 - dist;
 
-                            // Push away
-                            cx += nx * overlap;
-                            cy += ny * overlap;
+                            // 1. Push Self away (Reaction)
+                            // Push slightly more to prevent sticking
+                            cx += nx * overlap * 0.6;
+                            cy += ny * overlap * 0.6;
 
-                            // Reduce speed on impact instead of bouncing back
-                            gameState.current.speed *= 0.3;
-                            gameState.current.vx *= 0.3;
-                            gameState.current.vy *= 0.3;
+                            // 2. Push Opponent away (Visual Logic on Local)
+                            // This creates a sense of impact even if server sync corrects it later.
+                            p.x -= nx * overlap * 0.6;
+                            p.y -= ny * overlap * 0.6;
+
+                            // 3. Physics Response (Bounce/Slow Down)
+                            // If moving fast, bounce back slightly
+                            if (Math.abs(gameState.current.speed) > 5) {
+                                gameState.current.speed *= -0.3; // Reverse speed (Bounce)
+                                // Add some lateral slide
+                                gameState.current.x += nx * 5;
+                                gameState.current.y += ny * 5;
+                            } else {
+                                // Low speed bump
+                                gameState.current.speed *= 0.8;
+                            }
+
+                            // 4. Screen Shake Effect (Optional - by adjusting offsets slightly?)
+                            // For now, physics change is enough.
                         }
                     });
 
@@ -707,8 +903,11 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     ctx.restore();
 
                     if (!isOnTrack) {
-                        gameState.current.speed *= 0.92; // Smoother grass slowing
-                        const GRASS_MAX_SPEED = MAX_SPEED * 0.5; // Increased from 0.3
+                        // Grass Friction: 0.92 -> 0.95 (Increase max speed on grass to ~30-35km/h)
+                        // Applied with dt for frame-rate independence
+                        gameState.current.speed *= Math.pow(0.95, dtClamped);
+
+                        const GRASS_MAX_SPEED = MAX_SPEED * 0.5; // Cap at ~50% max speed
                         if (Math.abs(gameState.current.speed) > GRASS_MAX_SPEED) {
                             gameState.current.speed = GRASS_MAX_SPEED * (gameState.current.speed > 0 ? 1 : -1);
                         }
@@ -736,7 +935,8 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                     // 1. Qualifying Logic
                     if (room.status === 'qualifying') {
                         if (!isFinishedRef.current) {
-                            const qTime = (now - (gameState.current.lapStartTime || room.raceStartTime || now)) / 1000;
+                            // Calculate time based on local lapStartTime (set when GO signal dropped)
+                            const qTime = (now - gameState.current.lapStartTime) / 1000;
                             setMyResult(qTime);
                             socket.emit('finishQualifying', { roomId: room.id, time: qTime.toFixed(3) });
 
@@ -984,7 +1184,14 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             // Remote Players
             playersRef.current.forEach(p => {
                 if (p.id === meRef.current.id) return;
+                // Fix: Ghost Mode Opacity
+                const isGhost = room.status === 'qualifying';
+                const opacity = isGhost ? 0.4 : 1.0;
+
+                ctx.save();
+                ctx.globalAlpha = opacity;
                 drawCar(ctx, p.x || 0, p.y || 0, p.rotation || 0, p.team?.color || '#888', p.nickname, gameState.current.rotation);
+                ctx.restore();
             });
 
             // Self
@@ -1049,7 +1256,7 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
             });
 
             // Draw Self
-            ctx.fillStyle = '#ef4444'; // Red for self
+            ctx.fillStyle = meRef.current.team?.color || '#ef4444'; // Use Team Color
             ctx.beginPath();
             ctx.arc(gameState.current.x, gameState.current.y, 80, 0, Math.PI * 2);
             ctx.fill();
@@ -1200,8 +1407,36 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-black relative">
 
-            {/* STATUS OVERLAY */}
-            {room.status === 'countdown' && (
+            {/* START LIGHTS OVERLAY - Show in Qualifying too, but only logic handles hide/show */}
+            {(lightStage >= 1 && lightStage <= 6) && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-black/80 p-4 rounded-xl border-2 border-slate-700 flex gap-4 backdrop-blur-md shadow-2xl">
+                    {[1, 2, 3, 4, 5].map(i => (
+                        <div key={i} className={`w-12 h-12 rounded-full border-4 border-slate-800 ${lightStage === 6
+                            ? 'bg-black' // Off when Green? Or Green? F1 is "Lights Out" to start.
+                            : i <= lightStage ? 'bg-red-600 shadow-[0_0_30px_#dc2626]' : 'bg-slate-900'
+                            }`} />
+                    ))}
+                </div>
+            )}
+
+            {/* Qualifying Preparation Overlay - BIGGER */}
+            {(room.status === 'qualifying' && !isQualyStarted) && (
+                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
+                    <div className="text-center animate-bounce">
+                        <h2 className="text-8xl font-black text-yellow-500 italic uppercase drop-shadow-[0_0_50px_rgba(234,179,8,1)]">GET READY</h2>
+                        <p className="text-white text-2xl font-bold tracking-[1em] mt-6 uppercase">Qualifying Session</p>
+                    </div>
+                </div>
+            )}
+            {/* Qualifying GO Overlay */}
+            {(room.status === 'qualifying' && lightStage === 6) && (
+                // Just a quick flash would be nice, but simple is ok. 
+                // We can rely on car sound/movement, or a quick "GO" that fades out.
+                // For now, let's just hide the READY.
+                null
+            )}
+            {/* Countdown Text Backup */}
+            {room.status === 'countdown' && lightStage === 0 && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
                     <div className="text-center animate-bounce">
                         <h1 className="text-8xl font-black text-yellow-500 italic uppercase drop-shadow-[0_0_25px_rgba(234,179,8,0.8)]">GET READY</h1>
@@ -1266,9 +1501,47 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                         </h1>
                         <div className="text-3xl text-slate-300 font-mono font-bold mb-6">{myResult}s</div>
                         {room.status === 'qualifying' && (
-                            <p className="text-orange-500 font-black uppercase tracking-widest mb-6 animate-pulse">
-                                Waiting for other drivers to finish...
-                            </p>
+                            <div className="mb-6 w-full">
+                                <h3 className="text-xl text-white font-bold mb-4 uppercase text-center border-b border-slate-700 pb-2">Qualifying Results</h3>
+                                <div className="space-y-2 max-h-[200px] overflow-y-auto mb-4 custom-scrollbar">
+                                    {qualifyResults.map((r, i) => (
+                                        <div key={r.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border border-slate-800">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-black italic ${i === 0 ? 'text-yellow-500' : 'text-slate-500'}`}>{i + 1}</span>
+                                                <span className="text-white font-bold">{r.nickname}</span>
+                                            </div>
+                                            <span className="font-mono text-slate-300">{r.time.toFixed(3)}s</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {room.hostId === socket.id ? (
+                                    <div className="flex flex-col items-center mt-6 gap-3">
+                                        <button
+                                            disabled={qualifyResults.length < room.players.length}
+                                            onClick={() => socket.emit('startRace', { roomId: room.id })}
+                                            className={`
+                                                text-xl px-12 py-6 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg border-4 
+                                                ${qualifyResults.length < room.players.length
+                                                    ? 'bg-slate-700 text-slate-500 border-slate-600 cursor-not-allowed opacity-50'
+                                                    : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_30px_rgba(220,38,38,0.6)] animate-pulse border-white/20 hover:border-white hover:scale-105 active:scale-95 cursor-pointer'
+                                                }
+                                            `}
+                                        >
+                                            Start Race Session
+                                        </button>
+                                        {qualifyResults.length < room.players.length && (
+                                            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs animate-pulse">
+                                                Waiting for {room.players.length - qualifyResults.length} drivers to finish...
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-orange-500 font-black uppercase tracking-widest text-center text-xs">
+                                        Waiting for host to start race...
+                                    </p>
+                                )}
+                            </div>
                         )}
                         <div className="flex gap-4">
                             <button onClick={() => {

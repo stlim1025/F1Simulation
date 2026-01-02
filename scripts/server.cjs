@@ -638,15 +638,19 @@ io.on('connection', (socket) => {
 
       console.log(`[Race] Countdown started in ${roomId}`);
 
+      // Fix: Random Start Delay for F1 Style Start (4s ~ 6s)
+      // 3s for lights (0.6s * 5) + 1s~3s random hold
+      const randomDelay = 4000 + Math.random() * 2000;
+
       setTimeout(() => {
         if (rooms.has(roomId)) {
           room.status = 'racing';
           room.raceStartTime = Date.now();
           io.to(roomId).emit('raceStarted', room);
           io.emit('lobbyUpdate', Array.from(rooms.values()));
-          console.log(`[Race] GO! in ${roomId}`);
+          console.log(`[Race] GO! in ${roomId} (Delay: ${Math.round(randomDelay)}ms)`);
         }
-      }, 3000);
+      }, randomDelay);
     }
   });
 
@@ -679,15 +683,20 @@ io.on('connection', (socket) => {
               io.to(roomId).emit('roomUpdate', room);
 
               setTimeout(() => {
-                if (rooms.has(roomId)) {
-                  room.status = 'racing';
-                  room.raceStartTime = Date.now();
-                  io.to(roomId).emit('raceStarted', room);
-                  io.emit('lobbyUpdate', Array.from(rooms.values()));
-                }
-              }, 3000);
+                // Fix: Random Start Delay for Auto-Start after Qualy
+                const randomDelay = 4000 + Math.random() * 2000;
+
+                setTimeout(() => {
+                  if (rooms.has(roomId)) {
+                    room.status = 'racing';
+                    room.raceStartTime = Date.now();
+                    io.to(roomId).emit('raceStarted', room);
+                    io.emit('lobbyUpdate', Array.from(rooms.values()));
+                  }
+                }, randomDelay);
+              }, 100); // Small buffer before starting countdown timer logic (actually the outer timeout is 5000)
             }
-          }, 5000);
+          }, 5000); // 5s wait on results screen
         }
       }
     }
