@@ -359,11 +359,12 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
     const me = currentRoom.players.find((p: any) => p.id === socket.id);
 
     return (
-      <div className="animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-4">
+        {/* COMPACT ROOM HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/50 p-6 rounded-2xl border border-slate-800 backdrop-blur-sm gap-4">
-          <div className="flex items-center gap-4">
-            <button onClick={leaveRoom} className="text-slate-400 hover:text-white transition-colors bg-slate-800 p-2.5 rounded-full border border-slate-700">
-              <ArrowLeft size={20} />
+          <div className="flex items-center gap-3">
+            <button onClick={leaveRoom} className="text-slate-400 hover:text-white transition-colors bg-slate-800 p-2 rounded-full border border-slate-700">
+              <ArrowLeft size={16} />
             </button>
             <div>
               <div className="flex items-center gap-2">
@@ -374,6 +375,8 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                 <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">
                   {track.name[lang]} | {currentRoom.players.length}/4 {lang === 'ko' ? '명의 드라이버' : 'DRIVERS'} | {currentRoom.totalLaps} LAPS
                 </p>
+                {/* Host Controls Inline */}
+                {/* Host Controls */}
                 {isHost && (
                   <>
                     <button
@@ -424,6 +427,8 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
                     </div>
                   </>
                 )}
+
+                {/* Non-Host View */}
                 {!isHost && (
                   <div className="flex items-center gap-2 ml-2">
                     <div className={`px-2 py-1 rounded flex items-center gap-1.5 border text-[9px] font-black uppercase ${currentRoom.weather === 'rainy' ? 'bg-blue-900/30 text-blue-400 border-blue-800' : 'bg-yellow-900/30 text-yellow-500 border-yellow-800'}`}>
@@ -469,6 +474,10 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-20">
+
+
+
+          {/* PLAYER GRID SECTION */}
           <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 h-fit">
             {Array.from({ length: 4 }).map((_, idx) => {
               const player = currentRoom.players[idx];
@@ -532,7 +541,8 @@ const MultiplayerPage: React.FC<Props> = ({ setup, livery, lang, team }) => {
             })}
           </div>
 
-          <div className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl flex flex-col h-[864px] shadow-2xl lg:sticky lg:top-24">
+          {/* CHAT SECTION (Restored Position, Adjusted Height) */}
+          <div className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl flex flex-col h-[500px] lg:h-[600px] shadow-2xl lg:sticky lg:top-24">
             <div className="bg-slate-800/50 p-4 border-b border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare size={16} className="text-red-500" />

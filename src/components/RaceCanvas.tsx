@@ -825,17 +825,17 @@ const RaceCanvas: React.FC<Props> = ({ room, me, socket, onLeave, weather }) => 
                             p.x -= nx * overlap * 0.6;
                             p.y -= ny * overlap * 0.6;
 
-                            // 3. Physics Response (Bounce/Slow Down)
-                            // If moving fast, bounce back slightly
-                            if (Math.abs(gameState.current.speed) > 5) {
-                                gameState.current.speed *= -0.3; // Reverse speed (Bounce)
-                                // Add some lateral slide
-                                gameState.current.x += nx * 5;
-                                gameState.current.y += ny * 5;
-                            } else {
-                                // Low speed bump
-                                gameState.current.speed *= 0.8;
-                            }
+                            // 3. Physics Response (No Bounce, Just Slow Down)
+                            // User Feedback: "Don't bounce back, just slow down"
+
+                            // Reduce speed significantly but keep direction
+                            gameState.current.speed *= 0.7;
+
+                            // Add slight lateral nudge based on impact normal to simulate glancing blow
+                            // But do not reverse control
+                            // Applying friction/instability
+                            gameState.current.vx *= 0.9;
+                            gameState.current.vy *= 0.9;
 
                             // 4. Screen Shake Effect (Optional - by adjusting offsets slightly?)
                             // For now, physics change is enough.
