@@ -389,6 +389,7 @@ export const DRIVERS: Driver[] = [
   // Mercedes
   { id: 'russell', name: { ko: '조지 러셀', en: 'George Russell' }, teamId: 'mercedes', number: 63, photo: '/src/images/drivers/george_russell.png', skill: 0.96, consistency: 0.93 },
   { id: 'antonelli', name: { ko: '키미 안토넬리', en: 'Kimi Antonelli' }, teamId: 'mercedes', number: 12, photo: '/src/images/drivers/kimi_antonelli.png', skill: 0.89, consistency: 0.80 },
+  { id: 'aline', name: { ko: '밥밥', en: 'Bob Bob' }, teamId: 'mercedes', number: 77, photo: '/src/images/drivers/Aline.png', skill: 0.95, consistency: 0.96 },
 
   // Aston Martin
   { id: 'alonso', name: { ko: '페르난도 알론소', en: 'Fernando Alonso' }, teamId: 'aston', number: 14, photo: '/src/images/drivers/fernando_alonso.png', skill: 0.96, consistency: 0.98 },
